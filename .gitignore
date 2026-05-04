@@ -1,0 +1,33 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Output directory
+/output/
+
+# Data directory (large corpus files)
+/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled binaries
+*.exe
+*.pdb
+
+# Hugging Face upload artifacts
+hf_model_card.md
+
+# Temporary files
+*.tmp
+*.bak

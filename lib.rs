@@ -1,1 +1,3 @@
-// tamil_tokenizer: a byte pair encoding (BPE) tokenizer for Tamil text
+pub mod vocab;
+
+pub use vocab::{TamilTokenizer, TokenizerError, Result};

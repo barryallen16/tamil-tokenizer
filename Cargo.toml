@@ -9,6 +9,10 @@ license = "MIT"
 name = "tamil_tokenizer"
 path = "lib.rs"
 
+[[bin]]
+name = "encode"
+path = "encode.rs"
+
 [dependencies]
 regex = "1"
 serde = { version = "1", features = ["derive"] }

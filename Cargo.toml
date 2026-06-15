@@ -13,6 +13,10 @@ path = "lib.rs"
 name = "encode"
 path = "encode.rs"
 
+[[bin]]
+name = "decode"
+path = "decode.rs"
+
 [dependencies]
 regex = "1"
 serde = { version = "1", features = ["derive"] }

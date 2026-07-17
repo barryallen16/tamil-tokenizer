@@ -14,6 +14,10 @@ name = "main"
 path = "main.rs"
 
 [[bin]]
+name = "train"
+path = "train.rs"
+
+[[bin]]
 name = "encode"
 path = "encode.rs"
 

@@ -25,6 +25,10 @@ path = "encode.rs"
 name = "decode"
 path = "decode.rs"
 
+[[bin]]
+name = "test_special_tokens"
+path = "test_special_tokens.rs"
+
 [dependencies]
 regex = "1"
 rayon = "1"

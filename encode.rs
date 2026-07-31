@@ -32,13 +32,16 @@ fn main() {
     
     let vocab: FxHashMap<String, u32> = tokenizer_data.vocab.into_iter().collect();
     
-    let encoder = match FastBPEEncoder::new(vocab) {
+    let encoder = match FastBPEEncoder::new_with_config(vocab, Default::default()) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); }
     };
     
     println!("Input: {}", text);
     let tokens = encoder.encode(text);
+        let tokens1 = encoder.encode_ordinary(text);
     println!("Tokens: {:?}", tokens);
-    println!("Decoded: {}", encoder.decode(&tokens));
+    println!("Decoded (with special): {}", encoder.decode(&tokens));
+    println!("Tokens without specials: {:?}", tokens1);    
+    println!("Decoded (clean): {}", encoder.decode_skip_special(&tokens));
 }

@@ -245,13 +245,57 @@ impl TamilTokenizer {
             .collect()
     }
 
+    // pub fn save_vocab(&self, path: &str) -> std::io::Result<()> {
+    //     let json = serde_json::to_string_pretty(&self.vocab)
+    //         .expect("Serialization failed");
+    //     let mut file = File::create(path)?;
+    //     file.write_all(json.as_bytes())?;
+    //     Ok(())
+    // }
+
     pub fn save_vocab(&self, path: &str) -> Result<()> {
-        let json = serde_json::to_string_pretty(&self.vocab)
-            .expect("Serialization failed");
+        // use std::collections::BTreeMap;
+
+        // Build (id -> token) so we can serialize in strict ID order
+        let mut by_id: Vec<(u32, &str)> = self.vocab.iter()
+            .map(|(tok, &id)| (id, tok.as_str()))
+            .collect();
+        by_id.sort_by(|a, b| a.0.cmp(&b.0)); // stable, ascending ID
+
+        // Rebuild an ordered map purely for pretty, deterministic JSON
+        // We’ll write as: [{"id":0,"token":"..."}, ...] to avoid key-order debates
+        #[derive(serde::Serialize)]
+        struct Row<'a> { id: u32, token: &'a str }
+
+        let rows: Vec<Row> = by_id.into_iter()
+            .map(|(id, tok)| Row { id, token: tok })
+            .collect();
+
         let mut file = File::create(path)?;
+        let json = serde_json::to_string_pretty(&rows).expect("Serialization failed");
         file.write_all(json.as_bytes())?;
         Ok(())
     }
+
+    pub fn load_vocab_id_list(path: &str) -> Result<HashMap<String, u32>> {
+        use std::fs::File;
+        use std::io::BufReader;
+
+        #[derive(serde::Deserialize)]
+        struct Row { id: u32, token: String }
+
+        let f = File::open(path)?;
+        let r = BufReader::new(f);
+        let rows: Vec<Row> = serde_json::from_reader(r)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let mut map = HashMap::with_capacity(rows.len());
+        for Row { id, token } in rows {
+            map.insert(token, id);
+        }
+        Ok(map)
+    }
+
 
     pub fn vocab_size(&self) -> usize {
         self.vocab.len()
@@ -273,3 +317,5 @@ impl TamilTokenizer {
         println!("Tab (\\t) → U+{:04X} ({})", self.byte_encoder[&b'\t'] as u32, self.byte_encoder[&b'\t']);
     }
 }
+
+

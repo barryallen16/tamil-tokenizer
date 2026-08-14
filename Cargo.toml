@@ -26,8 +26,20 @@ name = "decode"
 path = "decode.rs"
 
 [[bin]]
+name = "benchmark"
+path = "benchmark.rs"
+
+[[bin]]
 name = "test_special_tokens"
 path = "test_special_tokens.rs"
+
+[[bin]]
+name = "bench_encode"
+path = "bench_encode.rs"
+
+[[bin]]
+name = "bench_speed"
+path = "bench_speed.rs"
 
 [dependencies]
 regex = "1"
@@ -37,3 +49,7 @@ serde_json = "1"
 rustc-hash = "1"
 ahash = { version = "0.8", features = ["serde"] }
 aho-corasick = "1"
+
+[profile.release]
+opt-level = 3
+lto = true

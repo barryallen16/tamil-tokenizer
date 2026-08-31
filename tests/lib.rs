@@ -14,8 +14,24 @@ mod tests {
     #[test]
     fn test_vocab_size_range() {
         let tok = TamilTokenizer::new();
-        assert!(tok.vocab_size() > 200);
-        assert!(tok.vocab_size() < 400);
+        assert!(tok.vocab_size() > 500);
+        assert!(tok.vocab_size() < 600);
+    }
+
+    /// Losslessness rests on this: every one of the 256 bytes must have a
+    /// single-char token, otherwise the encoder has nothing to fall back on
+    /// and silently drops the byte.
+    #[test]
+    fn test_vocab_covers_all_256_bytes() {
+        let tok = TamilTokenizer::new();
+        for b in 0..=255u8 {
+            let ch = tok.byte_encoder[&b];
+            assert!(
+                tok.vocab.contains_key(&ch.to_string()),
+                "no single-char token for byte {}",
+                b
+            );
+        }
     }
 
     #[test]
@@ -201,5 +217,67 @@ mod tests {
         let ids = enc.encode(text);
         let decoded = enc.decode_skip_special(&ids);
         assert_eq!(decoded, text);
+    }
+
+    // === Losslessness (byte-level BPE) ===
+
+    /// The bug these guard: the vocab stores GPT-2 style byte-mapped chars, but
+    /// the encoder used to feed raw text straight to the automaton. Anything the
+    /// pretokenizer split off into a chunk with no vocab match was dropped with
+    /// no error, so encode/decode silently lost characters.
+    fn assert_roundtrip(text: &str) {
+        let enc = make_encoder();
+        let ids = enc.encode_ordinary(text);
+        assert_eq!(enc.decode(&ids), text, "roundtrip failed for {:?}", text);
+    }
+
+    #[test]
+    fn test_roundtrip_tamil_with_spaces() {
+        assert_roundtrip("வணக்கம் இது தமிழ்");
+    }
+
+    #[test]
+    fn test_roundtrip_english_letters() {
+        // Base vocab deliberately ships no learned merges, so each ASCII letter
+        // must still survive via the single-byte fallback.
+        assert_roundtrip("Hello world");
+    }
+
+    #[test]
+    fn test_roundtrip_control_characters() {
+        assert_roundtrip("a\nb");
+        assert_roundtrip("a\tb\rc");
+        assert_roundtrip("line1\nline2\n\nline4");
+    }
+
+    #[test]
+    fn test_roundtrip_emoji() {
+        assert_roundtrip("😀");
+        assert_roundtrip("hi 😀🎉 there");
+    }
+
+    #[test]
+    fn test_roundtrip_mixed_script() {
+        assert_roundtrip("வணக்கம் Hello 123 !@# 😀 தமிழ்\nend");
+    }
+
+    #[test]
+    fn test_roundtrip_leading_and_trailing_space() {
+        assert_roundtrip("  padded  ");
+    }
+
+    #[test]
+    fn test_encode_never_silently_drops_text() {
+        // Total decoded bytes must always equal input bytes, whatever the input.
+        let enc = make_encoder();
+        for text in ["a", " ", "\n", "😀", "ஃ", "Hello", "வணக்கம்", "x y\nz"] {
+            let ids = enc.encode_ordinary(text);
+            assert_eq!(
+                enc.decode(&ids).len(),
+                text.len(),
+                "byte count changed for {:?}",
+                text
+            );
+        }
     }
 }

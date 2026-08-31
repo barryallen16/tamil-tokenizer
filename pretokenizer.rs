@@ -8,7 +8,7 @@ pub struct TamilPretokenizer {
 
 impl TamilPretokenizer {
     pub fn new() -> Self {
-        // ✅ Combine all patterns into one single string using '+'
+        // Combine all patterns into one single string using '+'
         let pattern_str = concat!(
             r"<\|[a-z_]+\|>",
             r" ?(?:\p{L}\p{M}*)+['\u2019](?:\p{L}\p{M}*)+", // words with apostrophes

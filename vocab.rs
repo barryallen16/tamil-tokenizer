@@ -43,28 +43,16 @@ impl TamilTokenizer {
         let mut vocab_tuples: Vec<(String, u32)> = Vec::new();
         let (byte_encoder, byte_decoder) = Self::create_byte_mappings();
 
-        // Step 1: Add 4 control chars in codepoint order
-        let control_bytes = [b'\n', b'\r', b'\t', 0x0C]; // LF, CR, TAB, FF
-        for &b in &control_bytes {
-            let printable_char = byte_encoder[&b];
-            vocab_tuples.push((printable_char.to_string(), vocab_tuples.len() as u32));
+        // Step 1: Every one of the 256 bytes gets a single-char token.
+        // This is what makes the tokenizer lossless: when no learned merge
+        // matches, the encoder falls back to the token for the raw byte, so
+        // there is always *some* id to emit and nothing is ever dropped.
+        for b in 0..=255u8 {
+            let mapped_char = byte_encoder[&b];
+            vocab_tuples.push((mapped_char.to_string(), vocab_tuples.len() as u32));
         }
 
-        // Step 2: Add space
-        let space_char = byte_encoder[&b' '];
-        vocab_tuples.push((space_char.to_string(), vocab_tuples.len() as u32));
-
-        // Step 3: Add ASCII printable in codepoint order (33-126)
-        for b in 33..=126u8 {
-            // Skip alphabets (A-Z: 65-90, a-z: 97-122)
-            if (65..=90).contains(&b) || (97..=122).contains(&b) {
-                continue;
-            }
-            let ch = b as char;
-            vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
-        }
-
-        // Step 4: Add 12 Tamil independent vowels (in codepoint order)
+        // Step 2: Add 12 Tamil independent vowels (in codepoint order)
         let vowel_codepoints = [
             0x0B85, 0x0B86, 0x0B87, 0x0B88, 0x0B89, 0x0B8A,
             0x0B8E, 0x0B8F, 0x0B90,
@@ -76,7 +64,7 @@ impl TamilTokenizer {
             }
         }
 
-        // Step 5: Add 18 consonants (in codepoint order)
+        // Step 3: Add 18 consonants (in codepoint order)
         let consonant_codepoints = [
             0x0B95, 0x0B99, 0x0B9A, 0x0B9E, 0x0B9F, 0x0BA3,
             0x0BA4, 0x0BA8, 0x0BAA, 0x0BAE, 0x0BAF, 0x0BB0,
@@ -94,7 +82,7 @@ impl TamilTokenizer {
             0x0BC7, 0x0BC8, 0x0BCA, 0x0BCB, 0x0BCC, 0x0BCD,
         ];
 
-        // Step 7: Generate 18 × 12 = 216 consonant+vowel combinations (in codepoint order)
+        // Step 4: Generate 18 × 12 = 216 consonant+vowel combinations (in codepoint order)
         for &consonant_cp in &consonant_codepoints {
             for &sign_cp in &vowel_sign_codepoints {
                 if let (Some(c), Some(sign)) = (
@@ -106,19 +94,19 @@ impl TamilTokenizer {
             }
         }
 
-        // Step 8: Add 1 special character ஃ (0x0B83)
+        // Step 5: Add 1 special character ஃ (0x0B83)
         if let Some(ch) = std::char::from_u32(0x0B83) {
             vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
         }
 
-        // Step 9: Add 10 Tamil digits (in codepoint order)
+        // Step 6: Add 10 Tamil digits (in codepoint order)
         for cp in 0x0BE6..=0x0BEF {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
             }
         }
 
-        // Step 10: Add 11 extra Tamil chars (in codepoint order)
+        // Step 7: Add 11 extra Tamil chars (in codepoint order)
         for cp in 0x0BF0..=0x0BFA {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
@@ -149,7 +137,7 @@ impl TamilTokenizer {
 
     /// Create GPT-2 style byte-to-unicode mapping
     /// Maps control chars and space to printable Unicode characters for visibility
-    fn create_byte_mappings() -> (HashMap<u8, char>, HashMap<char, u8>) {
+    pub fn create_byte_mappings() -> (HashMap<u8, char>, HashMap<char, u8>) {
         let mut byte_encoder = HashMap::new();
         let mut byte_decoder = HashMap::new();
 
@@ -303,9 +291,7 @@ impl TamilTokenizer {
 
     pub fn print_stats(&self) {
         println!("Total vocabulary size: {}", self.vocab.len());
-        println!("Control characters (mapped): 4");
-        println!("Space (mapped): 1");
-        println!("ASCII printable (digits, punctuation - NO alphabets): ~43");
+        println!("Byte-level tokens (all 256 bytes, GPT-2 style): 256");
         println!("Tamil clustered characters: 247");
         println!("Tamil digits: 10");
         println!("Extra Tamil characters: 11");

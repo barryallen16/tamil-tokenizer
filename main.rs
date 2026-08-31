@@ -13,7 +13,7 @@
 
 //     // Save vocabulary file
 //     match tokenizer.save_vocab("./output/tamil_vocab.json") {
-//         Ok(_) => println!("\n✓ Vocabulary saved to ./output/tamil_vocab.json"),
+//         Ok(_) => println!("Vocabulary saved to ./output/tamil_vocab.json"),
 //         Err(e) => eprintln!("Error saving vocab: {}", e),
 //     }
 
@@ -26,7 +26,7 @@
 //     // Pretokenize a corpus input file
 //     // fs::write("./data/tamil_corpus.txt", "வணக்கம்! இது தமிழ் உரை.\nநன்றி.").unwrap();
 //     match pretok.pretokenize_file("./data/tamil_corpus.txt", "./output/pretokenized.txt") {
-//         Ok(_) => println!("\n✓ Pretokenized corpus saved to ./output/pretokenized.txt"),
+//         Ok(_) => println!("Pretokenized corpus saved to ./output/pretokenized.txt"),
 //         Err(e) => eprintln!("Pretokenization failed: {}", e),
 //     }
 // }

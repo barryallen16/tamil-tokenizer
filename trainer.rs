@@ -433,7 +433,7 @@ impl OptimizedBPETrainer {
         vocab
     }
     
-    // ✅ Add special tokens + reserved tokens to vocab
+    // Add special tokens + reserved tokens to vocab
     pub fn save_tokenizer_with_reserved_tokens(&self, path: &str) -> std::io::Result<()> {
         use std::fs::File;
         use std::io::Write;
@@ -469,7 +469,7 @@ impl OptimizedBPETrainer {
         
         let named_tokens_end = current_id;
         
-        // ✅ Add reserved tokens (1000 slots)
+        // Add reserved tokens (100 slots)
         let reserved_count = 100u32;
         for i in 0..reserved_count {
             let reserved_token = format!("<|reserved_{}|>", current_id + i);

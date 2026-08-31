@@ -2,7 +2,7 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use crate::pretokenizer::TamilPretokenizer;
-use crate::vocab::{TokenizerError, Result};
+use crate::vocab::{TamilTokenizer, TokenizerError, Result};
 
 
 #[derive(Debug, Clone)]
@@ -39,7 +39,8 @@ pub struct FastBPEEncoder {
     id_to_token: Arc<Vec<String>>,
     ac_automaton: Arc<AhoCorasick>,
     pretokenizer: TamilPretokenizer,
-    byte_to_id: [Option<u32>; 256],
+    byte_encoder: FxHashMap<u8, char>,
+    byte_decoder: FxHashMap<char, u8>,
     special_tokens: FxHashMap<String, u32>,
     special_token_ids: Vec<u32>,
     special_token_automaton: AhoCorasick,
@@ -116,12 +117,9 @@ impl FastBPEEncoder {
             .build(&patterns)
             .map_err(|e| TokenizerError::InvalidData(format!("Failed to build Aho-Corasick automaton: {}", e)))?;
 
-        let mut byte_to_id = [None; 256];
-        for (token, &id) in &vocab {
-            if token.len() == 1 {
-                byte_to_id[token.as_bytes()[0] as usize] = Some(id);
-            }
-        }
+        // Byte-level fallback tables. The vocab stores GPT-2 style byte-mapped
+        // chars, so raw text must be mapped in before matching and unmap after.
+        let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
 
         let mut token_to_id_bytes: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
         for (token, &id) in &vocab {
@@ -150,7 +148,8 @@ impl FastBPEEncoder {
             id_to_token: Arc::new(id_to_token),
             ac_automaton: Arc::new(ac_automaton),
             pretokenizer: TamilPretokenizer::new(),
-            byte_to_id,
+            byte_encoder: byte_encoder.into_iter().collect(),
+            byte_decoder: byte_decoder.into_iter().collect(),
             special_tokens,
             special_token_ids,
             special_token_automaton,
@@ -165,41 +164,52 @@ impl FastBPEEncoder {
     fn encode_inner(&self, text: &str) -> Vec<u32> {
         let mut token_ids = Vec::with_capacity(text.len() / 3);
         let chunks = self.pretokenizer.pretokenize(text);
-        
+
         for chunk in chunks {
-            let bytes = chunk.as_bytes();
+            // Byte-level BPE: map each raw byte to its printable stand-in char so
+            // the automaton only ever sees characters the vocab can represent.
+            let mapped: String = chunk
+                .bytes()
+                .map(|b| self.byte_encoder[&b])
+                .collect();
+
+            let mapped_bytes = mapped.as_bytes();
             let mut pos = 0;
-            
-            while pos < bytes.len() {
-                let remaining = &bytes[pos..];
+
+            while pos < mapped_bytes.len() {
+                let remaining = &mapped_bytes[pos..];
                 let mut matched = false;
-                
+
                 if let Some(mat) = self.ac_automaton.find(remaining) {
                     if mat.start() == 0 {
-                        let matched_bytes = &remaining[..mat.end()];
-                        if let Ok(matched_str) = std::str::from_utf8(matched_bytes) {
-                            if let Some(&id) = self.token_to_id.get(matched_str) {
-                                token_ids.push(id);
-                                pos += mat.end();
-                                matched = true;
-                            }
+                        // Matches always land on char boundaries because every
+                        // pattern is valid UTF-8.
+                        let matched_str = &mapped[pos..pos + mat.end()];
+                        if let Some(&id) = self.token_to_id.get(matched_str) {
+                            token_ids.push(id);
+                            pos += mat.end();
+                            matched = true;
                         }
                     }
                 }
-                
+
                 if !matched {
-                    if let Some(id) = self.byte_to_id[bytes[pos] as usize] {
+                    // No learned token covers this position: emit the single-byte
+                    // token. Step one *char*, not one byte, since mapped chars
+                    // above U+007F occupy two bytes.
+                    let ch = mapped[pos..].chars().next().unwrap();
+                    if let Some(&id) = self.token_to_id.get(&ch.to_string()) {
                         token_ids.push(id);
                     }
-                    pos += 1;
+                    pos += ch.len_utf8();
                 }
             }
         }
-        
+
         token_ids
     }
 
-    /// ✅ FIXED: Encode with BOS/EOS, but DO NOT auto-detect special tokens
+    /// Encode with BOS/EOS, but DO NOT auto-detect special tokens
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let mut result = Vec::new();
         result.push(self.special_tokens["<|startoftext|>"]);
@@ -208,25 +218,42 @@ impl FastBPEEncoder {
         result
     }
 
-    /// ✅ Encode ordinary (like tiktoken playground)
+    /// Encode ordinary (like tiktoken playground)
     /// Returns ONLY text tokens - recognizes special tokens if in vocab
     pub fn encode_ordinary(&self, text: &str) -> Vec<u32> {
         self.encode_inner(text)
     }
 
     pub fn decode(&self, token_ids: &[u32]) -> String {
-        token_ids.iter()
-            .filter_map(|&id| self.id_to_token.get(id as usize))
-            .map(|s| s.as_str())
-            .collect::<String>()
+        self.decode_inner(token_ids)
     }
 
     pub fn decode_skip_special(&self, token_ids: &[u32]) -> String {
-        token_ids.iter()
-            .filter(|&&id| !self.is_special_token(id))
-            .filter_map(|&id| self.id_to_token.get(id as usize))
-            .map(|s| s.as_str())
-            .collect::<String>()
+        let filtered: Vec<u32> = token_ids
+            .iter()
+            .copied()
+            .filter(|&id| !self.is_special_token(id))
+            .collect();
+        self.decode_inner(&filtered)
+    }
+
+    /// Reverse of `encode_inner`: join token strings, map every byte-mapped char
+    /// back to its raw byte, then reinterpret those bytes as UTF-8.
+    fn decode_inner(&self, token_ids: &[u32]) -> String {
+        let mut bytes: Vec<u8> = Vec::with_capacity(token_ids.len() * 4);
+        for &id in token_ids {
+            let Some(token) = self.id_to_token.get(id as usize) else { continue };
+            for ch in token.chars() {
+                match self.byte_decoder.get(&ch) {
+                    Some(&b) => bytes.push(b),
+                    None => {
+                        let mut buf = [0u8; 4];
+                        bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                    }
+                }
+            }
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
     }
 
     pub fn is_special_token(&self, token_id: u32) -> bool {

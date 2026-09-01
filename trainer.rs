@@ -200,7 +200,7 @@ impl OptimizedBPETrainer {
         self.rebuild_heap();
         
         let elapsed = start_time.elapsed();
-        println!("✓ Cached {} unique words from {} lines in {:.2}s\n",
+        println!("Cached {} unique words from {} lines in {:.2}s\n",
             self.words.len(), all_lines.len(), elapsed.as_secs_f64());
         
         Ok(())
@@ -420,7 +420,7 @@ impl OptimizedBPETrainer {
         }
         
         self.total_time = train_start.elapsed();
-        println!("\n✓ Training complete in {:.2}s ({:.2}m)",
+        println!("\nTraining complete in {:.2}s ({:.2}m)",
             self.total_time.as_secs_f64(),
             self.total_time.as_secs_f64() / 60.0);
     }
@@ -498,7 +498,7 @@ impl OptimizedBPETrainer {
         let mut file = File::create(path)?;
         file.write_all(json_string.as_bytes())?;
         
-        println!("✅ Saved tokenizer with special + reserved tokens to: {}", path);
+        println!("Saved tokenizer with special + reserved tokens to: {}", path);
         println!("   Base vocab: 0-{}", base_vocab_size - 1);
         println!("   Named special tokens: {}-{}", base_vocab_size, named_tokens_end - 1);
         println!("   Reserved tokens: {}-{}", named_tokens_end, current_id - 1);
@@ -518,7 +518,7 @@ impl OptimizedBPETrainer {
         
         let file = File::create(path)?;
         serde_json::to_writer_pretty(file, &vocab_map)?;
-        println!("✓ Saved vocabulary to {}", path);
+        println!("Saved vocabulary to {}", path);
         Ok(())
     }
     
@@ -542,7 +542,7 @@ impl OptimizedBPETrainer {
         
         let file = File::create(path)?;
         serde_json::to_writer_pretty(file, &merges_data)?;
-        println!("✓ Saved merges to {}", path);
+        println!("Saved merges to {}", path);
         Ok(())
     }
     

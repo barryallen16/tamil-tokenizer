@@ -32,7 +32,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ### Pre-trained Model
 
-> 🔗 **[Hugging Face: tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
+> **[Hugging Face: tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
 >
 > A pre-trained tokenizer with a 32K vocab, trained on 128K lines of Tamil Wikipedia text.
 >
@@ -218,7 +218,7 @@ Compared against **tiktoken** (OpenAI), **SentencePiece** (Google), and **Huggin
 
 ## Hugging Face Integration
 
-This tokenizer is published on 🤗 Hugging Face Hub:
+This tokenizer is published on Hugging Face Hub:
 
 - **Model card:** [tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)
 - **Tokenizer JSON:** [`tamil_tokenizer_wiki.json`](https://huggingface.co/barryallen16/tamil-tokenizer-wiki/blob/main/tamil_tokenizer_wiki.json)

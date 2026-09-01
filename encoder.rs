@@ -213,7 +213,7 @@ impl FastBPEEncoder {
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let mut result = Vec::new();
         result.push(self.special_tokens["<|startoftext|>"]);
-        result.extend(self.encode_inner(text));  // ✅ Just BPE, no special token detection
+        result.extend(self.encode_inner(text));
         result.push(self.special_tokens["<|endoftext|>"]);
         result
     }

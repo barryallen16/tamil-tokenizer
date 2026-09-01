@@ -48,6 +48,6 @@ fn main() {
         std::process::exit(1);
     }
     
-    println!("✓ Training complete!");
-    println!("✓ Vocabulary saved to {}", output_file);
+    println!("Training complete!");
+    println!("Vocabulary saved to {}", output_file);
 }

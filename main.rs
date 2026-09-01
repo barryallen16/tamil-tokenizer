@@ -40,29 +40,37 @@
 //     tokenizer.save_vocab("./output/tamil_vocab_cluster.json").unwrap();
 // }
 use tamil_tokenizer::FastBPEEncoder;
-// use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::io::{self, Write};
-use serde_json;
+use serde::Deserialize;
 use rustc_hash::FxHashMap;
+
+#[derive(Deserialize)]
+struct TokenizerData {
+    vocab: std::collections::HashMap<String, u32>,
+}
 
 fn main() {
     println!("=== Tamil Fast Encoder/Decoder ===\n");
-    
-    // Load your trained vocabulary
-    println!("Loading vocabulary from output/tamil_tokenizer.json...");
-    let data = match fs::read_to_string("output/tamil_tokenizer.json") {
+
+    let vocab_file = env::args().nth(1).unwrap_or_else(|| "output/tamil_tokenizer.json".to_string());
+
+    println!("Loading vocabulary from {}...", vocab_file);
+    let data = match fs::read_to_string(&vocab_file) {
         Ok(d) => d,
         Err(e) => { eprintln!("Failed to read vocab file: {}", e); return; }
     };
-    
-    let vocab: FxHashMap<String, u32> = match serde_json::from_str(&data) {
+
+    let tokenizer_data: TokenizerData = match serde_json::from_str(&data) {
         Ok(v) => v,
         Err(e) => { eprintln!("Failed to parse vocab JSON: {}", e); return; }
     };
-    
-    println!("✓ Loaded {} tokens\n", vocab.len());
-    
+
+    let vocab: FxHashMap<String, u32> = tokenizer_data.vocab.into_iter().collect();
+
+    println!("Loaded {} tokens\n", vocab.len());
+
     let encoder = match FastBPEEncoder::new(vocab) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); return; }
@@ -85,16 +93,16 @@ fn main() {
         
         // Encode
         let token_ids = encoder.encode(input);
-        println!("\n✓ Encoded to {} tokens:", token_ids.len());
+        println!("\nEncoded to {} tokens:", token_ids.len());
         println!("  {:?}", token_ids);
-        
-        // Decode
-        let decoded = encoder.decode(&token_ids);
-        println!("\n✓ Decoded:");
+
+        // Decode, dropping BOS/EOS so the result is comparable to the input
+        let decoded = encoder.decode_skip_special(&token_ids);
+        println!("\nDecoded:");
         println!("  {}", decoded);
-        
+
         // Verify
-        println!("\n✓ Match: {}\n", if input == decoded { "✅" } else { "❌" });
+        println!("\nMatch: {}\n", if input == decoded { "OK" } else { "MISMATCH" });
         println!("{}", "=".repeat(60));
         println!();
     }

@@ -8,10 +8,11 @@ pub struct TamilPretokenizer {
 
 impl TamilPretokenizer {
     pub fn new() -> Self {
-        // Combine all patterns into one single string using '+'
+        // Every alternative after the first must be introduced by '|'. Omitting it
+        // concatenates two rules instead of separating them.
         let pattern_str = concat!(
             r"<\|[a-z_]+\|>",
-            r" ?(?:\p{L}\p{M}*)+['\u2019](?:\p{L}\p{M}*)+", // words with apostrophes
+            r"| ?(?:\p{L}\p{M}*)+['\u2019](?:\p{L}\p{M}*)+", // words with apostrophes
             r"|_(?:\p{Ll}\p{M}*)+",                         // words starting with underscore
             r"| ?(?:\p{Lu}\p{M}*)+",                        // uppercase sequences
             r"| ?(?:\p{Ll}\p{M}*)+",                        // lowercase or mixed

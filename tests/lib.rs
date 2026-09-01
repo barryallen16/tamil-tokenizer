@@ -128,6 +128,40 @@ mod tests {
         assert_eq!(rejoined, "123 + 456 = 789");
     }
 
+    /// Regression: the apostrophe rule was missing its leading '|', so it was
+    /// concatenated onto the special-token rule rather than being an alternative.
+    /// That made contractions split, and stopped the special-token rule from ever
+    /// matching on its own.
+    #[test]
+    fn test_pretokenizer_contraction_is_one_chunk() {
+        let p = TamilPretokenizer::new();
+        assert_eq!(p.pretokenize("it's"), vec!["it's"]);
+        assert_eq!(p.pretokenize("don't"), vec!["don't"]);
+    }
+
+    #[test]
+    fn test_pretokenizer_special_token_is_its_own_chunk() {
+        let p = TamilPretokenizer::new();
+        assert_eq!(
+            p.pretokenize("<|endoftext|>"),
+            vec!["<|endoftext|>"]
+        );
+        assert_eq!(
+            p.pretokenize("<|endoftext|> hello"),
+            vec!["<|endoftext|>", " hello"]
+        );
+    }
+
+    /// The special-token pattern is [a-z_]+ with no digits, so reserved tokens
+    /// like <|reserved_0|> cannot match it. They still round-trip, just as
+    /// several tokens instead of one.
+    #[test]
+    fn test_pretokenizer_reserved_token_with_digits_roundtrips() {
+        let p = TamilPretokenizer::new();
+        let rejoined: String = p.pretokenize("<|reserved_0|>").concat();
+        assert_eq!(rejoined, "<|reserved_0|>");
+    }
+
     // === Encoder (12 tests) ===
 
     #[test]

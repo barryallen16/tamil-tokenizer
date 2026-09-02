@@ -7,7 +7,7 @@ def format_duration(nanos):
     if nanos < 1_000:
         return f"{nanos} ns"
     elif nanos < 1_000_000:
-        return f"{nanos / 1_000:.2f} µs"
+        return f"{nanos / 1_000:.2f} us"
     elif nanos < 1_000_000_000:
         return f"{nanos / 1_000_000:.2f} ms"
     else:
@@ -34,10 +34,8 @@ def main():
     total_tokens = 0
     total_time = 0
     
-    print("┌──────────┬─────────┬──────────────┬────────────────────────┐")
-    print("│ Line ID  │ Chars   │ Tokens       │ Time / Throughput      │")
-    print("├──────────┼─────────┼──────────────┼────────────────────────┤")
-    
+    print("Line ID |    Chars |       Tokens |   Time  Throughput")
+
     for i, text in enumerate(sample):
         byte_count = len(text.encode('utf-8'))
         
@@ -53,14 +51,11 @@ def main():
         total_tokens += len(tokens)
         total_time += elapsed
         
-        if (i + 1) % 10 == 0:
-            mb = byte_count / (1024 * 1024)
-            secs = elapsed / 1e9
-            throughput = mb / secs if secs > 0 else 0
-            print(f"│ {i+1:>8} │ {len(text):>7} │ {len(tokens):>12} │ {format_duration(elapsed):>8} {throughput:>8.2f} MB/s │")
-    
-    print("└──────────┴─────────┴──────────────┴────────────────────────┘")
-    
+        mb = byte_count / (1024 * 1024)
+        secs = elapsed / 1e9
+        throughput = mb / secs if secs > 0 else 0
+        print(f"{i+1:>6} | {len(text):>7} | {len(tokens):>12} | {format_duration(elapsed):>8} {throughput:>8.2f} MB/s")
+
     # Summary
     mb = total_bytes / (1024 * 1024)
     secs = total_time / 1e9

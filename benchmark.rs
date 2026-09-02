@@ -14,7 +14,7 @@ fn format_duration(nanos: u128) -> String {
     if nanos < 1_000 {
         format!("{} ns", nanos)
     } else if nanos < 1_000_000 {
-        format!("{:.2} µs", nanos as f64 / 1_000.0)
+        format!("{:.2} us", nanos as f64 / 1_000.0)
     } else if nanos < 1_000_000_000 {
         format!("{:.2} ms", nanos as f64 / 1_000_000.0)
     } else {
@@ -74,12 +74,7 @@ fn main() {
     println!("Loaded {} documents from corpus\n", corpus_texts.len());
     
     // Corpus-based benchmarking
-    println!("┌─────────────────────────────────────────────────────────────┐");
-    println!("│ Corpus Benchmark Results                                    │");
-    println!("├──────────┬─────────┬──────────────┬────────────────────────┤");
-    println!("│ Doc ID   │ Chars   │ Tokens       │ Time / Throughput      │");
-    println!("├──────────┼─────────┼──────────────┼────────────────────────┤");
-    
+    println!("Doc ID |    Chars |       Tokens |   Time  Throughput");
     let mut total_bytes = 0;
     let mut total_tokens = 0;
     let mut total_time_nanos = 0u128;
@@ -106,17 +101,11 @@ fn main() {
         
         let throughput = format_throughput(byte_count, encode_time.as_nanos());
         
-        println!("│ {:>8} │ {:>7} │ {:>12} │ {:>8} {:>11} │", 
-                 idx + 1, char_count, tokens.len(), 
+        println!("{:>6} | {:>7} | {:>12} | {:>8} {:>11}",
+                 idx + 1, char_count, tokens.len(),
                  format_duration(encode_time.as_nanos()), throughput);
-        
-        if (idx + 1) % 10 == 0 {
-            println!("├──────────┼─────────┼──────────────┼────────────────────────┤");
-        }
     }
-    
-    println!("└──────────┴─────────┴──────────────┴────────────────────────┘");
-    
+
     // Summary statistics
     println!("\n=== Corpus Summary ===");
     println!("Documents processed: {}", sample_size);

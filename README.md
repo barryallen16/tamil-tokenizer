@@ -32,15 +32,22 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ### Pre-trained Model
 
-> **[Hugging Face: tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
->
-> A pre-trained tokenizer with a 32K vocab, trained on 128K lines of Tamil Wikipedia text.
->
-> ```bash
-> # Download the tokenizer JSON directly
-> curl -L -o tamil_tokenizer_wiki.json \
->   https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
-> ```
+A 32K-vocab tokenizer trained on Tamil Wikipedia is published at
+**[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**.
+It is a separate, larger artifact from the 1,015-token model in `output/` produced by the
+commands below.
+
+```bash
+# Download the tokenizer JSON directly
+curl -L -o tamil_tokenizer_wiki.json \
+  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
+
+# Download the 38 MB training corpus
+curl -L -o data/tamil_wiki_corpus.txt \
+  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_wiki_corpus.txt
+```
+
+`scripts/benchmark_all.py` and `scripts/evaluate.py` expect both of these files at those paths.
 
 ### 1. Train a Tokenizer
 
@@ -65,8 +72,12 @@ cargo run --release --bin encode -- ./output/tamil_tokenizer.json "வணக்�
 
 ```bash
 # Decode token IDs back to text
-cargo run --release --bin decode -- ./output/tamil_tokenizer.json 245 1023 567
+cargo run --release --bin decode -- ./output/tamil_tokenizer.json 224 174 181
+# வ
 ```
+
+`main` accepts an optional vocab path, defaulting to `output/tamil_tokenizer.json`:
+`cargo run --release --bin main -- ./output/tamil_tokenizer.json`
 
 ### 4. Interactive Mode
 
@@ -81,10 +92,12 @@ cargo run --release --bin main
 # Rust encoder benchmark
 cargo run --release --bin benchmark
 
-# Compare with tiktoken (Python)
-pip install tiktoken
+# Compare with tiktoken (Python; requires `pip install tiktoken`)
 python benchmark_tiktoken.py
 ```
+
+`benchmark_tiktoken.py` hardcodes `./data/tamil_corpus.txt`. To benchmark the 32K
+published model instead, point it at the downloaded corpus and vocab.
 
 ## Library Usage (Rust)
 
@@ -116,11 +129,19 @@ use tamil_tokenizer::FastBPEEncoder;
 use rustc_hash::FxHashMap;
 use std::fs;
 
-// Load trained vocabulary
+// Load trained vocabulary. The file is {vocab, merges, metadata}, so it must be
+// unwrapped -- deserializing the whole file into a flat map fails with
+// "invalid type: map, expected u32".
 let data = fs::read_to_string("output/tamil_tokenizer.json").unwrap();
-let vocab: FxHashMap<String, u32> = serde_json::from_str(&data).unwrap();
+let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
+let vocab: FxHashMap<String, u32> = parsed["vocab"]
+    .as_object()
+    .unwrap()
+    .iter()
+    .filter_map(|(k, v)| v.as_u64().map(|id| (k.clone(), id as u32)))
+    .collect();
 
-let encoder = FastBPEEncoder::new(vocab);
+let encoder = FastBPEEncoder::new(vocab).unwrap();
 
 // Encode with automatic BOS/EOS
 let token_ids = encoder.encode("வணக்கம்! இது தமிழ் tokenizer.");
@@ -181,29 +202,50 @@ The BPE trainer uses a **max-heap** to efficiently select the most frequent toke
 
 ## Benchmarks
 
-Compared against **tiktoken** (OpenAI), **SentencePiece** (Google), and **HuggingFace Tokenizers** on Tamil, English, and mixed text.
+All numbers below were produced by `cargo run --release --bin benchmark` against
+`output/tamil_tokenizer.json` on this repo's `data/tamil_corpus.txt`
+(117 lines, 5,161 bytes, 424 unique words). They are reproducible from a clean checkout.
 
-### Speed Comparison
+### Measured: local 1,015-token model
 
-| Tokenizer | Vocab | Tamil B/Tok | Tamil Speed | English B/Tok | English Speed |
-|-----------|------:|------------:|------------:|--------------:|--------------:|
-| **Ours (Rust BPE)** | **32K** | **13.44** | **52.9 MB/s** | **2.21** | **17.8 MB/s** |
-| SentencePiece (BPE) | 30K | 17.93 | 4.7 MB/s | 3.28 | 2.5 MB/s |
-| HF Tokenizers (BPE) | 30K | 18.62 | 4.3 MB/s | 3.50 | 1.3 MB/s |
-| tiktoken (cl100k) | 100K | 2.06 | 3.2 MB/s | 5.72 | 4.1 MB/s |
+| Metric | Value |
+|--------|------:|
+| Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
+| Trained merges | 297 |
+| Corpus compression | 1.07 bytes/token |
+| Tamil tokens/word | 11.96 |
+| Encode throughput | 5.5-7.3 MB/s |
+| Time per document | 6-8 us |
 
-### Evaluation Metrics
+Throughput varies run to run; the corpus is only 5 KB, so a few hundred documents fit
+in cache and the measurement is dominated by warmup.
 
-| Language | Bytes/Token | Tokens/Word | Interpretation |
-|----------|------------:|------------:|----------------|
-| **Tamil** | 5.85 | 4.22 | Agglutinative — more tokens per word |
-| **English** | 6.71 | 1.03 | Words encode efficiently |
-| **Code** | 3.43 | 1.66 | Symbol-heavy — lower compression |
+### Compression by script
 
-- **Fertility**: Tamil averages 4.22 tokens per word vs English 1.03
-- **Compression**: Code has the lowest bytes/token (3.43) due to symbol density
+Measured with `bench_encode` on a 20 KB slice of each input:
 
-> **Bottom line**: Our tokenizer is **11× faster** than SentencePiece and **16× faster** than HF Tokenizers on Tamil text.
+| Input | Bytes/token |
+|-------|------------:|
+| Tamil | 1.14 |
+| English | 1.28 |
+| Code | 1.11 |
+
+### Why compression is low
+
+`FastBPEEncoder` matches vocabulary strings with an Aho-Corasick automaton in
+leftmost-longest mode. Merged tokens *are* in the vocabulary, so they do get used,
+but merge **ordering** is never applied -- the automaton greedily takes the longest
+string at each position rather than replaying merges in the order the trainer learned
+them. Tamil characters are multi-byte, so the single-byte fallback that dominates here
+yields roughly one token per byte. Expect compression to improve substantially once
+merge ranks are applied.
+
+### The published 32K model
+
+The numbers reported on the Hugging Face model card for `barryallen16/tamil-tokenizer-wiki`
+(32,015 vocab, 29,999 merges, 2.57 bytes/token, 10.95 MB/s) refer to that separate
+artifact. They are not measurements of the code in this repository, and no script here
+reproduces them.
 
 ## Dependencies
 
@@ -218,26 +260,19 @@ Compared against **tiktoken** (OpenAI), **SentencePiece** (Google), and **Huggin
 
 ## Hugging Face Integration
 
-This tokenizer is published on Hugging Face Hub:
+The 32K published model is documented on its own model card:
+[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki).
 
-- **Model card:** [tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)
-- **Tokenizer JSON:** [`tamil_tokenizer_wiki.json`](https://huggingface.co/barryallen16/tamil-tokenizer-wiki/blob/main/tamil_tokenizer_wiki.json)
+Note that `encode`, `decode`, and `main` read the file's `vocab` key. They use
+`FastBPEEncoder`, which ignores the `merges` field. Token IDs will differ from the
+model card's examples for that reason.
 
-### Usage with Hugging Face Tokenizers library
-
-```python
-from transformers import AutoTokenizer
-
-tokenizer = AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")
-encoded = tokenizer("வணக்கம்! இது தமிழ் tokenizer.")
-print(encoded["input_ids"])
-```
-
-### Usage with Rust (this crate)
+### Usage with the Rust CLI
 
 ```bash
 # Download the tokenizer
-wget https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
+curl -L -o tamil_tokenizer_wiki.json \
+  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
 
 # Encode text
 cargo run --release --bin encode -- tamil_tokenizer_wiki.json "வணக்கம்!"

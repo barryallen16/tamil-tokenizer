@@ -6,7 +6,7 @@ def format_duration(nanos):
     if nanos < 1_000:
         return f"{nanos} ns"
     elif nanos < 1_000_000:
-        return f"{nanos / 1_000:.2f} µs"
+        return f"{nanos / 1_000:.2f} us"
     elif nanos < 1_000_000_000:
         return f"{nanos / 1_000_000:.2f} ms"
     else:
@@ -45,10 +45,8 @@ def main():
         return
     
     # Benchmark corpus
-    print("┌──────────┬─────────┬──────────────┬────────────────────────┐")
-    print("│ Doc ID   │ Chars   │ Tokens       │ Time / Throughput      │")
-    print("├──────────┼─────────┼──────────────┼────────────────────────┤")
-    
+    print("Doc ID |    Chars |       Tokens |   Time  Throughput")
+
     total_bytes = 0
     total_tokens = 0
     total_time_nanos = 0
@@ -74,13 +72,8 @@ def main():
         
         throughput = format_throughput(byte_count, encode_time)
         
-        print(f"│ {idx+1:>8} │ {char_count:>7} │ {len(tokens):>12} │ {format_duration(encode_time):>8} {throughput:>11} │")
-        
-        if (idx + 1) % 10 == 0:
-            print("├──────────┼─────────┼──────────────┼────────────────────────┤")
-    
-    print("└──────────┴─────────┴──────────────┴────────────────────────┘")
-    
+        print(f"{idx+1:>6} | {char_count:>7} | {len(tokens):>12} | {format_duration(encode_time):>8} {throughput:>11}")
+
     # Summary
     print("\n=== Corpus Summary ===")
     print(f"Documents processed: {sample_size}")

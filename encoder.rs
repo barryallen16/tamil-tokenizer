@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use rustc_hash::FxHashMap;
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, Anchored, Input, MatchKind, StartKind};
 use crate::pretokenizer::TamilPretokenizer;
 use crate::vocab::{TamilTokenizer, TokenizerError, Result};
 
@@ -111,15 +111,24 @@ impl FastBPEEncoder {
             id_to_token[id as usize] = token.clone();
         }
 
-        let patterns: Vec<&str> = vocab.keys().map(|s| s.as_str()).collect();
+        // The vocab mixes raw-text tokens (Tamil clusters and merges, trained on
+        // raw text) with 256 single-char byte tokens. Bytes outside printable
+        // ASCII are stood in by chars U+0100.. which can also occur in real text,
+        // so tokens containing a stand-in must never match raw input: they are
+        // reachable only through the byte fallback in `encode_inner`.
+        let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
+        let is_stand_in = |c: char| c as u32 >= 256 && byte_decoder.contains_key(&c);
+
+        let patterns: Vec<&str> = vocab
+            .keys()
+            .filter(|k| !k.chars().any(is_stand_in))
+            .map(|s| s.as_str())
+            .collect();
         let ac_automaton = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
+            .start_kind(StartKind::Anchored)
             .build(&patterns)
             .map_err(|e| TokenizerError::InvalidData(format!("Failed to build Aho-Corasick automaton: {}", e)))?;
-
-        // Byte-level fallback tables. The vocab stores GPT-2 style byte-mapped
-        // chars, so raw text must be mapped in before matching and unmap after.
-        let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
 
         let mut token_to_id_bytes: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
         for (token, &id) in &vocab {
@@ -166,43 +175,31 @@ impl FastBPEEncoder {
         let chunks = self.pretokenizer.pretokenize(text);
 
         for chunk in chunks {
-            // Byte-level BPE: map each raw byte to its printable stand-in char so
-            // the automaton only ever sees characters the vocab can represent.
-            let mapped: String = chunk
-                .bytes()
-                .map(|b| self.byte_encoder[&b])
-                .collect();
-
-            let mapped_bytes = mapped.as_bytes();
             let mut pos = 0;
 
-            while pos < mapped_bytes.len() {
-                let remaining = &mapped_bytes[pos..];
-                let mut matched = false;
-
-                if let Some(mat) = self.ac_automaton.find(remaining) {
-                    if mat.start() == 0 {
-                        // Matches always land on char boundaries because every
-                        // pattern is valid UTF-8.
-                        let matched_str = &mapped[pos..pos + mat.end()];
-                        if let Some(&id) = self.token_to_id.get(matched_str) {
-                            token_ids.push(id);
-                            pos += mat.end();
-                            matched = true;
-                        }
+            while pos < chunk.len() {
+                let input = Input::new(&chunk[pos..]).anchored(Anchored::Yes);
+                if let Some(mat) = self.ac_automaton.find(input) {
+                    // Patterns are valid UTF-8, so an anchored match ends on a
+                    // char boundary.
+                    let matched_str = &chunk[pos..pos + mat.end()];
+                    if let Some(&id) = self.token_to_id.get(matched_str) {
+                        token_ids.push(id);
+                        pos += mat.end();
+                        continue;
                     }
                 }
 
-                if !matched {
-                    // No learned token covers this position: emit the single-byte
-                    // token. Step one *char*, not one byte, since mapped chars
-                    // above U+007F occupy two bytes.
-                    let ch = mapped[pos..].chars().next().unwrap();
-                    if let Some(&id) = self.token_to_id.get(&ch.to_string()) {
+                // No raw token covers this position: emit one byte token per
+                // UTF-8 byte of the next char, so nothing is ever dropped.
+                let ch = chunk[pos..].chars().next().unwrap();
+                let mut buf = [0u8; 4];
+                for &b in ch.encode_utf8(&mut buf).as_bytes() {
+                    if let Some(&id) = self.token_to_id.get(&self.byte_encoder[&b].to_string()) {
                         token_ids.push(id);
                     }
-                    pos += ch.len_utf8();
                 }
+                pos += ch.len_utf8();
             }
         }
 

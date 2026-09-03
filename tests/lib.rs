@@ -300,6 +300,32 @@ mod tests {
         assert_roundtrip("  padded  ");
     }
 
+    /// Tamil clusters are stored as raw text. The encoder used to byte-map input
+    /// before matching, which made every Tamil token unreachable.
+    #[test]
+    fn test_tamil_cluster_is_one_token() {
+        let enc = make_encoder();
+        assert_eq!(enc.encode_ordinary("கா").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஃ").len(), 1);
+    }
+
+    #[test]
+    fn test_tamil_compresses_beyond_bytes() {
+        let enc = make_encoder();
+        let text = "வணக்கம் இது தமிழ்";
+        let ratio = text.len() as f64 / enc.encode_ordinary(text).len() as f64;
+        assert!(ratio > 2.0, "Tamil bytes/token {:.2} should exceed 2.0", ratio);
+    }
+
+    /// Byte tokens use stand-in chars U+0100..U+01A1. Real text containing those
+    /// chars must not match the byte tokens, or decode emits raw bytes instead.
+    #[test]
+    fn test_roundtrip_latin_extended() {
+        assert_roundtrip("Ş ğ ő Ā");
+        assert_roundtrip("zażółć gęślą jaźń");
+        assert_roundtrip("Ġ Ċ ĉ");
+    }
+
     #[test]
     fn test_encode_never_silently_drops_text() {
         // Total decoded bytes must always equal input bytes, whatever the input.

@@ -212,10 +212,10 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 |--------|------:|
 | Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
 | Trained merges | 297 |
-| Corpus compression | 1.07 bytes/token |
-| Tamil tokens/word | 11.96 |
-| Encode throughput | 5.5-7.3 MB/s |
-| Time per document | 6-8 us |
+| Corpus compression | 2.53 bytes/token |
+| Tamil tokens/word | 6.88 |
+| Encode throughput | 10-26 MB/s |
+| Time per document | 2-5 us |
 
 Throughput varies run to run; the corpus is only 5 KB, so a few hundred documents fit
 in cache and the measurement is dominated by warmup.
@@ -226,19 +226,27 @@ Measured with `bench_encode` on a 20 KB slice of each input:
 
 | Input | Bytes/token |
 |-------|------------:|
-| Tamil | 1.14 |
-| English | 1.28 |
-| Code | 1.11 |
+| Tamil | 2.62 |
+| English | 1.87 |
+| Code | 1.32 |
 
-### Why compression is low
+English and code compress less because the training corpus is Tamil-only, so few
+ASCII merges were learned.
 
-`FastBPEEncoder` matches vocabulary strings with an Aho-Corasick automaton in
-leftmost-longest mode. Merged tokens *are* in the vocabulary, so they do get used,
-but merge **ordering** is never applied -- the automaton greedily takes the longest
-string at each position rather than replaying merges in the order the trainer learned
-them. Tamil characters are multi-byte, so the single-byte fallback that dominates here
-yields roughly one token per byte. Expect compression to improve substantially once
-merge ranks are applied.
+### How encoding works
+
+The trainer learns merges over raw text, so Tamil clusters and merged tokens are
+stored as raw Tamil strings. `FastBPEEncoder` matches each pretokenized chunk against
+those raw tokens with an anchored, leftmost-longest Aho-Corasick search. Where no
+token matches, it emits one byte-level token per UTF-8 byte of the next character,
+which keeps encoding lossless for any input.
+
+Byte tokens use GPT-2 style stand-in characters (U+0100 to U+01A1). Tokens containing
+a stand-in are kept out of the raw matcher, so real text containing those characters
+(for example Polish or Turkish letters) is never mistaken for raw bytes.
+
+Merge **order** is not replayed: the longest matching token wins at each position.
+This is not exact BPE, and it may segment some words differently from the trainer.
 
 ### The published 32K model
 
@@ -264,8 +272,8 @@ The 32K published model is documented on its own model card:
 [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki).
 
 Note that `encode`, `decode`, and `main` read the file's `vocab` key. They use
-`FastBPEEncoder`, which ignores the `merges` field. Token IDs will differ from the
-model card's examples for that reason.
+`FastBPEEncoder`, which matches vocab strings longest-first and does not replay the
+`merges` field in order. Token IDs may differ from the model card's examples.
 
 ### Usage with the Rust CLI
 

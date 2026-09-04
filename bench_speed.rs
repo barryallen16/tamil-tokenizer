@@ -1,6 +1,5 @@
-use tamil_tokenizer::FastBPEEncoder;
+use tamil_tokenizer::{load_vocab, FastBPEEncoder};
 use std::io::{self, BufRead};
-use rustc_hash::FxHashMap;
 use std::time::Instant;
 
 fn main() {
@@ -10,20 +9,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    let data = std::fs::read_to_string(&args[1])
-        .unwrap_or_else(|e| { eprintln!("Failed to read vocab: {}", e); std::process::exit(1); });
-    let tokenizer_data: serde_json::Value = serde_json::from_str(&data)
-        .unwrap_or_else(|e| { eprintln!("Invalid JSON: {}", e); std::process::exit(1); });
-
-    let vocab_map = if let Some(v) = tokenizer_data.get("vocab") {
-        v.as_object().unwrap_or_else(|| { eprintln!("Missing vocab key"); std::process::exit(1); })
-    } else {
-        tokenizer_data.as_object().unwrap_or_else(|| { eprintln!("Invalid JSON format"); std::process::exit(1); })
-    };
-
-    let vocab: FxHashMap<String, u32> = vocab_map.iter()
-        .filter_map(|(k, v)| v.as_u64().map(|id| (k.clone(), id as u32)))
-        .collect();
+    let vocab = load_vocab(&args[1])
+        .unwrap_or_else(|e| { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); });
 
     let encoder = FastBPEEncoder::new_with_config(vocab, Default::default())
         .unwrap_or_else(|e| { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); });

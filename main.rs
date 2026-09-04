@@ -1,14 +1,6 @@
-use tamil_tokenizer::FastBPEEncoder;
+use tamil_tokenizer::{load_vocab, FastBPEEncoder};
 use std::env;
-use std::fs;
 use std::io::{self, Write};
-use serde::Deserialize;
-use rustc_hash::FxHashMap;
-
-#[derive(Deserialize)]
-struct TokenizerData {
-    vocab: std::collections::HashMap<String, u32>,
-}
 
 fn main() {
     println!("=== Tamil Fast Encoder/Decoder ===\n");
@@ -16,17 +8,10 @@ fn main() {
     let vocab_file = env::args().nth(1).unwrap_or_else(|| "output/tamil_tokenizer.json".to_string());
 
     println!("Loading vocabulary from {}...", vocab_file);
-    let data = match fs::read_to_string(&vocab_file) {
-        Ok(d) => d,
-        Err(e) => { eprintln!("Failed to read vocab file: {}", e); return; }
-    };
-
-    let tokenizer_data: TokenizerData = match serde_json::from_str(&data) {
+    let vocab = match load_vocab(&vocab_file) {
         Ok(v) => v,
-        Err(e) => { eprintln!("Failed to parse vocab JSON: {}", e); return; }
+        Err(e) => { eprintln!("Failed to load vocab: {}", e); return; }
     };
-
-    let vocab: FxHashMap<String, u32> = tokenizer_data.vocab.into_iter().collect();
 
     println!("Loaded {} tokens\n", vocab.len());
 

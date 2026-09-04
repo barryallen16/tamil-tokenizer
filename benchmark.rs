@@ -1,14 +1,6 @@
-use tamil_tokenizer::FastBPEEncoder;
+use tamil_tokenizer::{load_vocab, FastBPEEncoder};
 use std::fs;
 use std::time::Instant;
-use serde::Deserialize;
-use serde_json;
-use rustc_hash::FxHashMap;
-
-#[derive(Deserialize)]
-struct TokenizerData {
-    vocab: std::collections::HashMap<String, u32>,
-}
 
 fn format_duration(nanos: u128) -> String {
     if nanos < 1_000 {
@@ -44,16 +36,10 @@ fn main() {
     
     // Load vocabulary
     let vocab_file = "./output/tamil_tokenizer.json";
-    let data = match fs::read_to_string(vocab_file) {
-        Ok(d) => d,
-        Err(e) => { eprintln!("Failed to read vocab file '{}': {}", vocab_file, e); std::process::exit(1); }
+    let vocab = match load_vocab(vocab_file) {
+        Ok(v) => v,
+        Err(e) => { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); }
     };
-    let tokenizer_data: TokenizerData = match serde_json::from_str(&data) {
-        Ok(d) => d,
-        Err(e) => { eprintln!("Failed to parse vocab: {}", e); std::process::exit(1); }
-    };
-    
-    let vocab: FxHashMap<String, u32> = tokenizer_data.vocab.into_iter().collect();
     println!("Vocabulary size: {}\n", vocab.len());
     
     let start = Instant::now();

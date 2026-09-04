@@ -1,6 +1,5 @@
-use tamil_tokenizer::FastBPEEncoder;
+use tamil_tokenizer::{load_vocab, FastBPEEncoder};
 use std::io::{self, BufRead};
-use rustc_hash::FxHashMap;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -9,18 +8,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let data = std::fs::read_to_string(&args[1]).expect("Failed to read vocab");
-    let tokenizer_data: serde_json::Value = serde_json::from_str(&data).expect("Invalid JSON");
-
-    let vocab_map = if let Some(v) = tokenizer_data.get("vocab") {
-        v.as_object().expect("Missing vocab key").clone()
-    } else {
-        tokenizer_data.as_object().expect("Invalid JSON format").clone()
-    };
-
-    let vocab: FxHashMap<String, u32> = vocab_map.iter()
-        .filter_map(|(k, v)| v.as_u64().map(|id| (k.clone(), id as u32)))
-        .collect();
+    let vocab = load_vocab(&args[1]).expect("Failed to load vocab");
 
     let encoder = FastBPEEncoder::new_with_config(vocab, Default::default())
         .expect("Failed to create encoder");

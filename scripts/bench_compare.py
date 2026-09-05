@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Benchmark tiktoken on Tamil Wikipedia text for comparison."""
+"""Benchmark tiktoken on Tamil text for comparison.
+
+Usage: python scripts/bench_compare.py [corpus.txt]
+"""
+import sys
 import time
 import tiktoken
 
@@ -23,7 +27,8 @@ def main():
     print(f"Encoder build time: {format_duration(build_time)}\n")
     
     # Load Tamil corpus
-    with open("data/tamil_wiki_corpus.txt", "r", encoding="utf-8") as f:
+    corpus = sys.argv[1] if len(sys.argv) > 1 else "data/tamil_corpus.txt"
+    with open(corpus, "r", encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
     
     # Sample 100 lines

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Evaluation metrics: compression ratio and fertility on Tamil, English, code."""
-import json, os, subprocess
+"""Evaluation metrics: compression ratio and fertility on Tamil, English, code.
+
+Usage: python scripts/evaluate.py [tokenizer.json]
+"""
+import json, os, sys, subprocess
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OURS_JSON = os.path.join(BASE, "output", "tamil_tokenizer_wiki.json")
+OURS_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
 RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode.exe")
 
 TAMIL = [

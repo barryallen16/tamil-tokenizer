@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Benchmark: Tamil BPE vs tiktoken vs SentencePiece vs HuggingFace Tokenizers"""
-import json, time, os, subprocess, tempfile, sentencepiece as spm
+"""Benchmark: Tamil BPE vs tiktoken vs SentencePiece vs HuggingFace Tokenizers
+
+Usage: python scripts/benchmark_all.py [tokenizer.json] [corpus.txt]
+"""
+import json, time, os, sys, subprocess, tempfile, sentencepiece as spm
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CORPUS = os.path.join(BASE, "data", "tamil_wiki_corpus.txt")
-OURS_JSON = os.path.join(BASE, "output", "tamil_tokenizer_wiki.json")
+OURS_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
+CORPUS = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else os.path.join(BASE, "data", "tamil_corpus.txt")
 RUST_SPEED = os.path.join(BASE, "target", "release", "bench_speed.exe")
 RUST_ENCODE = os.path.join(BASE, "target", "release", "bench_encode.exe")
 

@@ -135,20 +135,20 @@ impl FastBPEEncoder {
             token_to_id_bytes.insert(token.as_bytes().to_vec(), id);
         }
 
-        println!("\n=== o200k-style Special Token Assignment ===");
-        println!("Base vocabulary size: {}", base_vocab_size);
-        println!("Named special tokens: {} to {} ({} tokens)", 
-                 named_tokens_start, named_tokens_end - 1, 
+        eprintln!("\n=== o200k-style Special Token Assignment ===");
+        eprintln!("Base vocabulary size: {}", base_vocab_size);
+        eprintln!("Named special tokens: {} to {} ({} tokens)",
+                 named_tokens_start, named_tokens_end - 1,
                  named_tokens_end - named_tokens_start);
-        println!("Reserved tokens: {} to {} ({} tokens)", 
+        eprintln!("Reserved tokens: {} to {} ({} tokens)",
                  reserved_start, reserved_end - 1, reserved_count);
-        println!("Total vocab size: {}\n", vocab_size);
-        
-        println!("Named Special Tokens:");
+        eprintln!("Total vocab size: {}\n", vocab_size);
+
+        eprintln!("Named Special Tokens:");
         let mut special_sorted: Vec<_> = special_tokens.iter().collect();
         special_sorted.sort_by_key(|(_, id)| *id);
         for (token, id) in special_sorted {
-            println!("  {} = {}", id, token);
+            eprintln!("  {} = {}", id, token);
         }
 
         Ok(Self {

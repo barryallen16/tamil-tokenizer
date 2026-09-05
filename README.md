@@ -213,7 +213,7 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
 | Trained merges | 297 |
 | Corpus compression | 2.53 bytes/token |
-| Tamil tokens/word | 6.88 |
+| Tamil tokens/word | 3.68 |
 | Encode throughput | 10-26 MB/s |
 | Time per document | 2-5 us |
 
@@ -226,7 +226,7 @@ Measured with `bench_encode` on a 20 KB slice of each input:
 
 | Input | Bytes/token |
 |-------|------------:|
-| Tamil | 2.62 |
+| Tamil | 2.64 |
 | English | 1.87 |
 | Code | 1.32 |
 

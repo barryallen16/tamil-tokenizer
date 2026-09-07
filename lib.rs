@@ -24,3 +24,33 @@ pub fn load_vocab(path: &str) -> TokenizerResult<rustc_hash::FxHashMap<String, u
         })
         .collect()
 }
+
+/// Load a full trained tokenizer file: vocab plus ordered merge pairs.
+/// Returns an empty merge list for flat `{token: id}` maps.
+pub fn load_tokenizer(path: &str) -> TokenizerResult<(rustc_hash::FxHashMap<String, u32>, Vec<(String, String)>)> {
+    let data = std::fs::read_to_string(path)?;
+    let json: serde_json::Value = serde_json::from_str(&data)?;
+    let vocab_obj = json
+        .get("vocab")
+        .unwrap_or(&json)
+        .as_object()
+        .ok_or_else(|| TokenizerError::InvalidData(format!("{}: expected a JSON object", path)))?;
+    let mut vocab = rustc_hash::FxHashMap::default();
+    for (k, v) in vocab_obj {
+        let id = v.as_u64().ok_or_else(|| {
+            TokenizerError::InvalidData(format!("{}: id for {:?} is not an integer", path, k))
+        })?;
+        vocab.insert(k.clone(), id as u32);
+    }
+    let mut merges = Vec::new();
+    if let Some(list) = json.get("merges").and_then(|m| m.as_array()) {
+        for pair in list {
+            if let [a, b] = pair.as_array().map(Vec::as_slice).unwrap_or(&[]) {
+                if let (Some(a), Some(b)) = (a.as_str(), b.as_str()) {
+                    merges.push((a.to_string(), b.to_string()));
+                }
+            }
+        }
+    }
+    Ok((vocab, merges))
+}

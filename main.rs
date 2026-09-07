@@ -1,4 +1,4 @@
-use tamil_tokenizer::{load_vocab, FastBPEEncoder};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::env;
 use std::io::{self, Write};
 
@@ -8,14 +8,14 @@ fn main() {
     let vocab_file = env::args().nth(1).unwrap_or_else(|| "output/tamil_tokenizer.json".to_string());
 
     println!("Loading vocabulary from {}...", vocab_file);
-    let vocab = match load_vocab(&vocab_file) {
+    let (vocab, merges) = match load_tokenizer(&vocab_file) {
         Ok(v) => v,
         Err(e) => { eprintln!("Failed to load vocab: {}", e); return; }
     };
 
     println!("Loaded {} tokens\n", vocab.len());
 
-    let encoder = match FastBPEEncoder::new(vocab) {
+    let encoder = match FastBPEEncoder::new_with_merges(vocab, &merges) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); return; }
     };

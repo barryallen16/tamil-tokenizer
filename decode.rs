@@ -1,4 +1,4 @@
-use tamil_tokenizer::{load_vocab, FastBPEEncoder};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::env;
 
 fn main() {
@@ -20,12 +20,12 @@ fn main() {
         std::process::exit(1);
     }
 
-    let vocab = match load_vocab(vocab_file) {
+    let (vocab, merges) = match load_tokenizer(vocab_file) {
         Ok(v) => v,
         Err(e) => { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); }
     };
 
-    let encoder = match FastBPEEncoder::new(vocab) {
+    let encoder = match FastBPEEncoder::new_with_merges(vocab, &merges) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); }
     };

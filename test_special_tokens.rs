@@ -1,11 +1,11 @@
-use tamil_tokenizer::{load_vocab, FastBPEEncoder};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 
 fn main() {
-    let vocab = match load_vocab("./output/tamil_tokenizer.json") {
+    let (vocab, merges) = match load_tokenizer("./output/tamil_tokenizer.json") {
         Ok(v) => v,
         Err(e) => { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); }
     };
-    let encoder = match FastBPEEncoder::new(vocab) {
+    let encoder = match FastBPEEncoder::new_with_merges(vocab, &merges) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); }
     };

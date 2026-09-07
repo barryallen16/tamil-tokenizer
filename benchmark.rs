@@ -1,4 +1,4 @@
-use tamil_tokenizer::{load_vocab, FastBPEEncoder};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::fs;
 use std::time::Instant;
 
@@ -36,14 +36,14 @@ fn main() {
     
     // Load vocabulary
     let vocab_file = "./output/tamil_tokenizer.json";
-    let vocab = match load_vocab(vocab_file) {
+    let (vocab, merges) = match load_tokenizer(vocab_file) {
         Ok(v) => v,
         Err(e) => { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); }
     };
     println!("Vocabulary size: {}\n", vocab.len());
     
     let start = Instant::now();
-    let encoder = match FastBPEEncoder::new(vocab) {
+    let encoder = match FastBPEEncoder::new_with_merges(vocab, &merges) {
         Ok(e) => e,
         Err(e) => { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); }
     };

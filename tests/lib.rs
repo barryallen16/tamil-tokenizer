@@ -326,6 +326,39 @@ mod tests {
         assert_roundtrip("Ġ Ċ ĉ");
     }
 
+    /// Rank order decides, not longest match: ("a","b") is the only merge, so
+    /// "ab" leaves the base set and "abc" segments as a|bc with nothing left
+    /// to merge. Longest-match would have emitted ab|c instead.
+    #[test]
+    fn test_merge_rank_beats_longest_match() {
+        use tamil_tokenizer::FastBPEEncoder;
+        let vocab: FxHashMap<String, u32> = ["a", "b", "c", "ab", "bc"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| (t.to_string(), i as u32))
+            .collect();
+        let enc = FastBPEEncoder::new_with_merges(vocab, &[("a".to_string(), "b".to_string())])
+            .expect("Failed to create test encoder");
+        assert_eq!(enc.encode_ordinary("abc"), vec![0, 4]);
+    }
+
+    #[test]
+    fn test_chained_merges_collapse() {
+        use tamil_tokenizer::FastBPEEncoder;
+        let vocab: FxHashMap<String, u32> = ["a", "b", "c", "ab", "abc"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| (t.to_string(), i as u32))
+            .collect();
+        let merges = vec![
+            ("a".to_string(), "b".to_string()),
+            ("ab".to_string(), "c".to_string()),
+        ];
+        let enc = FastBPEEncoder::new_with_merges(vocab, &merges)
+            .expect("Failed to create test encoder");
+        assert_eq!(enc.encode_ordinary("abc"), vec![4]);
+    }
+
     #[test]
     fn test_encode_never_silently_drops_text() {
         // Total decoded bytes must always equal input bytes, whatever the input.

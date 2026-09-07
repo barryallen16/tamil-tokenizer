@@ -37,7 +37,8 @@ pub struct FastBPEEncoder {
     token_to_id: Arc<FxHashMap<String, u32>>,
     token_to_id_bytes: Arc<FxHashMap<Vec<u8>, u32>>,
     id_to_token: Arc<Vec<String>>,
-    ac_automaton: Arc<AhoCorasick>,
+    base_automaton: Arc<AhoCorasick>,
+    merge_ranks: FxHashMap<String, FxHashMap<String, u32>>,
     pretokenizer: TamilPretokenizer,
     byte_encoder: FxHashMap<u8, char>,
     byte_decoder: FxHashMap<char, u8>,
@@ -58,43 +59,64 @@ impl FastBPEEncoder {
     }
 
 
-    pub fn new_with_config(mut vocab: FxHashMap<String, u32>, config: SpecialTokenConfig) -> Result<Self> {
+    pub fn new_with_config(vocab: FxHashMap<String, u32>, config: SpecialTokenConfig) -> Result<Self> {
+        Self::build(vocab, config, &[])
+    }
+
+    /// Build from a trained tokenizer file: vocab plus ordered merge pairs.
+    /// Merge order is applied at encode time (true BPE); without merges the
+    /// encoder falls back to longest-match over the vocab.
+    pub fn new_with_merges(vocab: FxHashMap<String, u32>, merges: &[(String, String)]) -> Result<Self> {
+        Self::build(vocab, SpecialTokenConfig::default(), merges)
+    }
+
+    fn build(mut vocab: FxHashMap<String, u32>, config: SpecialTokenConfig, merges: &[(String, String)]) -> Result<Self> {
         let base_vocab_size = vocab.values().max().copied().unwrap_or(0) + 1;
-        
-        let mut named_token_id = base_vocab_size;
-        let named_tokens_start = named_token_id;
+
+        // Reuse IDs already in the file so a trained tokenizer keeps its IDs.
+        // Only genuinely missing tokens are appended after the current max.
+        let mut next_id = base_vocab_size;
+        let mut claim = |vocab: &mut FxHashMap<String, u32>, token: String| -> u32 {
+            if let Some(&id) = vocab.get(&token) {
+                return id;
+            }
+            let id = next_id;
+            next_id += 1;
+            vocab.insert(token, id);
+            id
+        };
         
         let mut special_tokens = FxHashMap::default();
         let mut special_token_ids = Vec::new();
         let mut all_special_token_strings = Vec::new();
         
-        for token in config.core_tokens {
-            vocab.insert(token.clone(), named_token_id);
-            special_tokens.insert(token.clone(), named_token_id);
-            special_token_ids.push(named_token_id);
-            all_special_token_strings.push(token.clone());
-            named_token_id += 1;
+        for token in config.core_tokens.into_iter().chain(config.custom_tokens) {
+            let id = claim(&mut vocab, token.clone());
+            special_tokens.insert(token.clone(), id);
+            special_token_ids.push(id);
+            all_special_token_strings.push(token);
         }
-        
-        for token in config.custom_tokens {
-            vocab.insert(token.clone(), named_token_id);
-            special_tokens.insert(token.clone(), named_token_id);
-            special_token_ids.push(named_token_id);
-            all_special_token_strings.push(token.clone());
-            named_token_id += 1;
-        }
-        
-        let named_tokens_end = named_token_id;
-        
-        let reserved_start = named_tokens_end;
-        let reserved_count = 100;
-        let reserved_end = reserved_start + reserved_count;
-        
-        for i in reserved_start..reserved_end {
-            let reserved_token = format!("<|reserved_{}|>", i);
-            vocab.insert(reserved_token.clone(), i as u32);
+
+        let named_tokens_start = special_token_ids.iter().copied().min().unwrap_or(next_id);
+        let named_tokens_end = special_token_ids.iter().copied().max().map(|m| m + 1).unwrap_or(next_id);
+
+        let reserved_count = 100usize;
+        let existing_reserved = vocab.keys().filter(|k| k.starts_with("<|reserved_")).count();
+        for _ in 0..reserved_count.saturating_sub(existing_reserved) {
+            let id = next_id;
+            next_id += 1;
+            let reserved_token = format!("<|reserved_{}|>", id);
+            vocab.insert(reserved_token.clone(), id);
             all_special_token_strings.push(reserved_token);
         }
+
+        let reserved_ids: Vec<u32> = vocab
+            .iter()
+            .filter(|(k, _)| k.starts_with("<|reserved_"))
+            .map(|(_, &id)| id)
+            .collect();
+        let reserved_start = reserved_ids.iter().copied().min().unwrap_or(next_id);
+        let reserved_end = reserved_ids.iter().copied().max().map(|m| m + 1).unwrap_or(next_id).max(named_tokens_end);
 
         let special_token_patterns: Vec<&str> = all_special_token_strings.iter()
             .map(|s| s.as_str())
@@ -104,7 +126,7 @@ impl FastBPEEncoder {
             .build(&special_token_patterns)
             .map_err(|e| TokenizerError::InvalidData(format!("Failed to build special token automaton: {}", e)))?;
 
-        let vocab_size = reserved_end as usize;
+        let vocab_size = next_id as usize;
         let mut id_to_token = vec![String::new(); vocab_size];
         
         for (token, &id) in &vocab {
@@ -119,15 +141,24 @@ impl FastBPEEncoder {
         let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
         let is_stand_in = |c: char| c as u32 >= 256 && byte_decoder.contains_key(&c);
 
-        let patterns: Vec<&str> = vocab
+        // Merge results are excluded from base matching so rank order decides.
+        // Rank = position in the trainer's merge list (0 = learned first).
+        let mut merge_ranks: FxHashMap<String, FxHashMap<String, u32>> = FxHashMap::default();
+        let mut merged_strings = std::collections::HashSet::new();
+        for (rank, (a, b)) in merges.iter().enumerate() {
+            merge_ranks.entry(a.clone()).or_default().insert(b.clone(), rank as u32);
+            merged_strings.insert(format!("{}{}", a, b));
+        }
+
+        let base_patterns: Vec<&str> = vocab
             .keys()
-            .filter(|k| !k.chars().any(is_stand_in))
+            .filter(|k| !k.chars().any(is_stand_in) && !merged_strings.contains(k.as_str()))
             .map(|s| s.as_str())
             .collect();
-        let ac_automaton = AhoCorasickBuilder::new()
+        let base_automaton = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
             .start_kind(StartKind::Anchored)
-            .build(&patterns)
+            .build(&base_patterns)
             .map_err(|e| TokenizerError::InvalidData(format!("Failed to build Aho-Corasick automaton: {}", e)))?;
 
         let mut token_to_id_bytes: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
@@ -155,7 +186,8 @@ impl FastBPEEncoder {
             token_to_id: Arc::new(vocab),
             token_to_id_bytes: Arc::new(token_to_id_bytes),
             id_to_token: Arc::new(id_to_token),
-            ac_automaton: Arc::new(ac_automaton),
+            base_automaton: Arc::new(base_automaton),
+            merge_ranks,
             pretokenizer: TamilPretokenizer::new(),
             byte_encoder: byte_encoder.into_iter().collect(),
             byte_decoder: byte_decoder.into_iter().collect(),
@@ -174,36 +206,95 @@ impl FastBPEEncoder {
         let mut token_ids = Vec::with_capacity(text.len() / 3);
         let chunks = self.pretokenizer.pretokenize(text);
 
-        for chunk in chunks {
-            let mut pos = 0;
-
-            while pos < chunk.len() {
-                let input = Input::new(&chunk[pos..]).anchored(Anchored::Yes);
-                if let Some(mat) = self.ac_automaton.find(input) {
-                    // Patterns are valid UTF-8, so an anchored match ends on a
-                    // char boundary.
-                    let matched_str = &chunk[pos..pos + mat.end()];
-                    if let Some(&id) = self.token_to_id.get(matched_str) {
-                        token_ids.push(id);
-                        pos += mat.end();
-                        continue;
-                    }
-                }
-
-                // No raw token covers this position: emit one byte token per
-                // UTF-8 byte of the next char, so nothing is ever dropped.
-                let ch = chunk[pos..].chars().next().unwrap();
-                let mut buf = [0u8; 4];
-                for &b in ch.encode_utf8(&mut buf).as_bytes() {
-                    if let Some(&id) = self.token_to_id.get(&self.byte_encoder[&b].to_string()) {
-                        token_ids.push(id);
-                    }
-                }
-                pos += ch.len_utf8();
+        for chunk in &chunks {
+            let mut symbols = self.segment(chunk);
+            self.apply_merges(chunk, &mut symbols);
+            for (a, b) in &symbols {
+                self.push_text(&mut token_ids, &chunk[*a..*b]);
             }
         }
 
         token_ids
+    }
+
+    /// Longest-match over base tokens only (merge results excluded so rank
+    /// order decides). Unmatched positions become single-char spans.
+    /// Spans are byte ranges, so segmentation allocates nothing.
+    fn segment(&self, chunk: &str) -> Vec<(usize, usize)> {
+        let mut symbols = Vec::new();
+        let mut pos = 0;
+
+        while pos < chunk.len() {
+            let input = Input::new(&chunk[pos..]).anchored(Anchored::Yes);
+            if let Some(mat) = self.base_automaton.find(input) {
+                symbols.push((pos, pos + mat.end()));
+                pos += mat.end();
+            } else {
+                let len = chunk[pos..].chars().next().unwrap().len_utf8();
+                symbols.push((pos, pos + len));
+                pos += len;
+            }
+        }
+
+        symbols
+    }
+
+    /// Standard BPE: repeatedly merge the adjacent pair with the lowest rank
+    /// (earliest learned). Each merge shortens the sequence, so this ends.
+    fn apply_merges(&self, chunk: &str, symbols: &mut Vec<(usize, usize)>) {
+        if self.merge_ranks.is_empty() {
+            return;
+        }
+        while symbols.len() >= 2 {
+            let mut best: Option<(usize, u32)> = None;
+            for i in 0..symbols.len() - 1 {
+                let a = &chunk[symbols[i].0..symbols[i].1];
+                let b = &chunk[symbols[i + 1].0..symbols[i + 1].1];
+                if let Some(&rank) = self.merge_ranks.get(a).and_then(|m| m.get(b)) {
+                    if best.map_or(true, |(_, r)| rank < r) {
+                        best = Some((i, rank));
+                    }
+                }
+            }
+            match best {
+                Some((i, _)) => {
+                    let (_, end) = symbols.remove(i + 1);
+                    symbols[i].1 = end;
+                }
+                None => break,
+            }
+        }
+    }
+
+    fn is_byte_stand_in(&self, c: char) -> bool {
+        c as u32 >= 256 && self.byte_decoder.contains_key(&c)
+    }
+
+    /// Resolve a span to token IDs. Anything without an ID falls back to one
+    /// token per UTF-8 byte, so nothing is ever dropped.
+    fn push_text(&self, token_ids: &mut Vec<u32>, s: &str) {
+        if !s.chars().any(|c| self.is_byte_stand_in(c)) {
+            if let Some(&id) = self.token_to_id.get(s) {
+                token_ids.push(id);
+                return;
+            }
+        }
+        for ch in s.chars() {
+            if !self.is_byte_stand_in(ch) {
+                let mut buf = [0u8; 4];
+                let single = ch.encode_utf8(&mut buf);
+                if let Some(&id) = self.token_to_id.get(single) {
+                    token_ids.push(id);
+                    continue;
+                }
+            }
+            let mut buf = [0u8; 4];
+            for &b in ch.encode_utf8(&mut buf).as_bytes() {
+                if let Some(&id) = self.token_to_id.get(&self.byte_encoder[&b].to_string()) {
+                    token_ids.push(id);
+                }
+            }
+        }
     }
 
     /// Encode with BOS/EOS, but DO NOT auto-detect special tokens

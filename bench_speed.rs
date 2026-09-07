@@ -1,4 +1,4 @@
-use tamil_tokenizer::{load_vocab, FastBPEEncoder};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::io::{self, BufRead};
 use std::time::Instant;
 
@@ -9,16 +9,20 @@ fn main() {
         std::process::exit(1);
     }
 
-    let vocab = load_vocab(&args[1])
+    let (vocab, merges) = load_tokenizer(&args[1])
         .unwrap_or_else(|e| { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); });
 
-    let encoder = FastBPEEncoder::new_with_config(vocab, Default::default())
+    let encoder = FastBPEEncoder::new_with_merges(vocab, &merges)
         .unwrap_or_else(|e| { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); });
 
     let repeats: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
 
     let stdin = io::stdin();
     let lines: Vec<String> = stdin.lock().lines().map(|l| l.unwrap()).collect();
+    if lines.is_empty() {
+        eprintln!("No input lines on stdin");
+        std::process::exit(1);
+    }
 
     for _ in 0..5 {
         for line in &lines {

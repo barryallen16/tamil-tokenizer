@@ -37,17 +37,15 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ### Pre-trained Model
 
-A 32K-vocab tokenizer trained on Tamil Wikipedia is published at
-**[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**.
-It is a separate, larger artifact from the 1,015-token model in `output/` produced by the
-commands below.
+The Hugging Face repo
+**[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
+publishes training corpora but no tokenizer JSON (verified via the API file
+listing: only `tamil_corpus.txt`, `tamil_corpus_large.txt`, and
+`tamil_wiki_corpus.txt` exist). Its model card describes a 32K tokenizer file
+that is not downloadable, so none of its performance claims can be reproduced.
 
 ```bash
-# Download the tokenizer JSON directly
-curl -L -o tamil_tokenizer_wiki.json \
-  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
-
-# Download the 38 MB training corpus
+# Download the 38 MB training corpus (this file exists)
 curl -L -o data/tamil_wiki_corpus.txt \
   https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_wiki_corpus.txt
 ```
@@ -224,18 +222,30 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 Throughput varies run to run; the corpus is only 5 KB, so a few hundred documents fit
 in cache and the measurement is dominated by warmup.
 
-### Compression by script
+### Head-to-head, same inputs, measured here
 
-Measured with `bench_encode` on a 20 KB slice of each input:
+Each tokenizer encoded identical text: the 117-line Tamil corpus plus fixed
+English and code samples. Opponents were trained fresh on the same corpus where
+applicable (HF BPE at 1,000 vocab, SentencePiece BPE at 500; ours is 1,015).
+Measured with `uv pip install tiktoken sentencepiece tokenizers`, then one script
+driving our `bench_encode` binary and the three libraries. No speed claims: timing
+a 5 KB corpus measures warmup, not throughput.
 
-| Input | Bytes/token |
-|-------|------------:|
-| Tamil | 2.66 |
-| English | 1.87 |
-| Code | 1.32 |
+| Input | Ours | tiktoken cl100k | HF BPE 1K | SPM BPE 500 |
+|-------|-----:|----------------:|----------:|------------:|
+| Tamil B/tok | 2.77 | 2.38 | 3.98 | 2.71 |
+| Tamil tok/word | 3.64 | 4.24 | 2.53 | 3.72 |
+| English B/tok | 1.71 | 5.56 | 2.05 | 1.78 |
+| Code B/tok | 1.41 | 2.76 | 1.73 | 1.41 |
 
-English and code compress less because the training corpus is Tamil-only, so few
-ASCII merges were learned.
+In multipliers, on Tamil we use 1.16x fewer tokens than tiktoken; HF's BPE uses
+1.44x fewer than us on the same training data. On English, tiktoken's 100K
+English-centric vocab uses 3.3x fewer tokens than us, as expected from a
+Tamil-only 1K vocab. SentencePiece ties us almost exactly.
+
+(The 2.77 here vs 2.56 in the table above is line handling: `benchmark` trims
+lines and scores the first 100 docs, while the comparison scores all 117 raw
+lines identically for every tokenizer.)
 
 ### How encoding works
 
@@ -257,10 +267,10 @@ instead of remapping them.
 
 ### The published 32K model
 
-The numbers reported on the Hugging Face model card for `barryallen16/tamil-tokenizer-wiki`
-(32,015 vocab, 29,999 merges, 2.57 bytes/token, 10.95 MB/s) refer to that separate
-artifact. They are not measurements of the code in this repository, and no script here
-reproduces them.
+The Hugging Face model card for `barryallen16/tamil-tokenizer-wiki` reports
+(32,015 vocab, 29,999 merges, 2.57 bytes/token, 10.95 MB/s), but the file those
+numbers describe is not in the repo's file listing, so they cannot be reproduced
+or checked. Treat them as unverified.
 
 ## Dependencies
 
@@ -275,22 +285,16 @@ reproduces them.
 
 ## Hugging Face Integration
 
-The 32K published model is documented on its own model card:
+The corpora used for training are published at
 [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki).
-
-Note that `encode`, `decode`, and `main` read the file's `vocab` key. They use
-`FastBPEEncoder`, which applies the `merges` field in rank order. Token IDs may
-still differ from the model card's examples (different pretokenizer and base vocab).
+No tokenizer JSON is published there, so there is nothing to download on the
+tokenizer side.
 
 ### Usage with the Rust CLI
 
 ```bash
-# Download the tokenizer
-curl -L -o tamil_tokenizer_wiki.json \
-  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
-
-# Encode text
-cargo run --release --bin encode -- tamil_tokenizer_wiki.json "வணக்கம்!"
+# Encode text with the locally trained tokenizer
+cargo run --release --bin encode -- ./output/tamil_tokenizer.json "வணக்கம்!"
 ```
 
 ---

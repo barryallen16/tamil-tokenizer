@@ -23,9 +23,14 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── encode.rs               # CLI: encode text to token IDs
 ├── decode.rs               # CLI: decode token IDs back to text
 ├── benchmark.rs            # Corpus benchmark (Rust)
-├── benchmark_tiktoken.py   # Comparison benchmark (Python tiktoken)
+├── bench_encode.rs         # CLI: encode one text or stdin lines (for scripts)
+├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
-└── main.rs                 # Interactive encoder/decoder REPL
+├── main.rs                 # Interactive encoder/decoder REPL
+├── tests/lib.rs            # Test suite (37 tests)
+├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
+├── scripts/extract_wiki_*.py # One-off Wikipedia corpus extraction
+└── data/tamil_corpus.txt   # 117-line sample corpus
 ```
 
 ## Quickstart
@@ -47,7 +52,8 @@ curl -L -o data/tamil_wiki_corpus.txt \
   https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_wiki_corpus.txt
 ```
 
-`scripts/benchmark_all.py` and `scripts/evaluate.py` expect both of these files at those paths.
+`scripts/evaluate.py` accepts the tokenizer path as an argument and defaults to the
+local `output/tamil_tokenizer.json`.
 
 ### 1. Train a Tokenizer
 
@@ -92,12 +98,10 @@ cargo run --release --bin main
 # Rust encoder benchmark
 cargo run --release --bin benchmark
 
-# Compare with tiktoken (Python; requires `pip install tiktoken`)
-python benchmark_tiktoken.py
+# Compression and fertility report (no extra dependencies)
+python scripts/evaluate.py
+python scripts/evaluate.py ./output/tamil_tokenizer.json
 ```
-
-`benchmark_tiktoken.py` hardcodes `./data/tamil_corpus.txt`. To benchmark the 32K
-published model instead, point it at the downloaded corpus and vocab.
 
 ## Library Usage (Rust)
 
@@ -212,10 +216,10 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 |--------|------:|
 | Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
 | Trained merges | 297 |
-| Corpus compression | 2.53 bytes/token |
-| Tamil tokens/word | 3.68 |
-| Encode throughput | 10-26 MB/s |
-| Time per document | 2-5 us |
+| Corpus compression | 2.56 bytes/token |
+| Tamil tokens/word | 3.64 |
+| Encode throughput | 3-12 MB/s |
+| Time per document | 4-16 us |
 
 Throughput varies run to run; the corpus is only 5 KB, so a few hundred documents fit
 in cache and the measurement is dominated by warmup.
@@ -226,7 +230,7 @@ Measured with `bench_encode` on a 20 KB slice of each input:
 
 | Input | Bytes/token |
 |-------|------------:|
-| Tamil | 2.64 |
+| Tamil | 2.66 |
 | English | 1.87 |
 | Code | 1.32 |
 
@@ -236,17 +240,20 @@ ASCII merges were learned.
 ### How encoding works
 
 The trainer learns merges over raw text, so Tamil clusters and merged tokens are
-stored as raw Tamil strings. `FastBPEEncoder` matches each pretokenized chunk against
-those raw tokens with an anchored, leftmost-longest Aho-Corasick search. Where no
-token matches, it emits one byte-level token per UTF-8 byte of the next character,
-which keeps encoding lossless for any input.
+stored as raw Tamil strings. `FastBPEEncoder` encodes each pretokenized chunk in
+three steps: longest-match over base tokens only (merge results excluded), then
+standard BPE -- repeatedly merging the adjacent pair with the lowest merge rank
+until no ranked pair remains -- then one token ID per symbol. Anything without an
+ID falls back to one byte-level token per UTF-8 byte, which keeps encoding
+lossless for any input.
 
 Byte tokens use GPT-2 style stand-in characters (U+0100 to U+01A1). Tokens containing
-a stand-in are kept out of the raw matcher, so real text containing those characters
+a stand-in are kept out of the matcher, so real text containing those characters
 (for example Polish or Turkish letters) is never mistaken for raw bytes.
 
-Merge **order** is not replayed: the longest matching token wins at each position.
-This is not exact BPE, and it may segment some words differently from the trainer.
+Special tokens keep the IDs stored in the file: a trained vocab already contains
+them (907-914 named, 915-1014 reserved here), and the encoder reuses those IDs
+instead of remapping them.
 
 ### The published 32K model
 
@@ -272,8 +279,8 @@ The 32K published model is documented on its own model card:
 [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki).
 
 Note that `encode`, `decode`, and `main` read the file's `vocab` key. They use
-`FastBPEEncoder`, which matches vocab strings longest-first and does not replay the
-`merges` field in order. Token IDs may differ from the model card's examples.
+`FastBPEEncoder`, which applies the `merges` field in rank order. Token IDs may
+still differ from the model card's examples (different pretokenizer and base vocab).
 
 ### Usage with the Rust CLI
 

@@ -227,9 +227,9 @@ in cache and the measurement is dominated by warmup.
 Each tokenizer encoded identical text: the 117-line Tamil corpus plus fixed
 English and code samples. Opponents were trained fresh on the same corpus where
 applicable (HF BPE at 1,000 vocab, SentencePiece BPE at 500; ours is 1,015).
-Measured with `uv pip install tiktoken sentencepiece tokenizers`, then one script
-driving our `bench_encode` binary and the three libraries. No speed claims: timing
-a 5 KB corpus measures warmup, not throughput.
+Reproduce with `uv pip install tiktoken sentencepiece tokenizers`, then
+`python scripts/compare.py` (missing libraries are skipped). No speed claims:
+timing a 5 KB corpus measures warmup, not throughput.
 
 | Input | Ours | tiktoken cl100k | HF BPE 1K | SPM BPE 500 |
 |-------|-----:|----------------:|----------:|------------:|

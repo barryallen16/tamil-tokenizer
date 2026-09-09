@@ -296,9 +296,3 @@ tokenizer side.
 # Encode text with the locally trained tokenizer
 cargo run --release --bin encode -- ./output/tamil_tokenizer.json "வணக்கம்!"
 ```
-
----
-
-## License
-
-MIT

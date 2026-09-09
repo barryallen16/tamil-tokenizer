@@ -251,8 +251,25 @@ Ablation: capping HF at our 297 merges gives 1,873 tokens vs our 1,865 --
 identical. The gap above is merge budget (793 vs 297), not algorithm: HF ran
 with `min_frequency=1` while our trainer required pair frequency >= 2.
 Relaxing our floor to >= 1 learns 1,159 merges on this corpus and reaches 5.15
-bytes/token, ahead of HF's 3.98. Note the tradeoff: on a large corpus the same
-relaxation learns tens of thousands of singleton merges with no vocab cap.
+bytes/token, ahead of HF's 3.98.
+
+### Wiki-scale training
+
+Training on `data/tamil_wiki_corpus.txt` (127,889 lines, 38.8 MB, gitignored)
+scales cleanly. Compression on held-out wiki lines by merge budget:
+
+| Merges | Train time | Wiki B/tok |
+|-------:|-----------:|-----------:|
+| 1,000 | seconds | 5.79 |
+| 5,000 | 1.1 s | 7.07 |
+| 30,000 | 1.4 s | 8.31 |
+
+Even at 30K merges the tail pair frequency is 11, so no singleton junk appears
+and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). The small
+corpus still favors its in-domain model (2.77 vs 2.71 for the 30K wiki model):
+domain beats budget. Note the wiki corpus is noisy -- about a quarter of the
+1K model's merges are ASCII markup fragments (`colo+r`, `j+pg`) -- so a
+production run wants markup stripping in extraction first.
 
 ### How encoding works
 

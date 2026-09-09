@@ -281,7 +281,7 @@ impl OptimizedBPETrainer {
         // Collect and sort by (freq DESC, key ASC) for deterministic ordering
         let mut pairs_vec: Vec<(u64, u32)> = self.pair_freq
             .iter()
-            .filter(|&(_, &freq)| freq >= 2)
+            .filter(|&(_, &freq)| freq >= 1)
             .map(|(&key, &freq)| (key, freq))
             .collect();
         
@@ -381,7 +381,7 @@ impl OptimizedBPETrainer {
                     .into_iter()
                     .filter_map(|(pair_key, _)| {
                         self.pair_freq.get(&pair_key).and_then(|&freq| {
-                            if freq >= 2 {
+                            if freq >= 1 {
                                 Some((pair_key, freq))
                             } else {
                                 None

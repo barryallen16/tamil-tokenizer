@@ -213,7 +213,7 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Metric | Value |
 |--------|------:|
 | Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
-| Trained merges | 297 |
+| Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
 | Encode throughput | 3-12 MB/s |
@@ -246,6 +246,13 @@ Tamil-only 1K vocab. SentencePiece ties us almost exactly.
 (The 2.77 here vs 2.56 in the table above is line handling: `benchmark` trims
 lines and scores the first 100 docs, while the comparison scores all 117 raw
 lines identically for every tokenizer.)
+
+Ablation: capping HF at our 297 merges gives 1,873 tokens vs our 1,865 --
+identical. The gap above is merge budget (793 vs 297), not algorithm: HF ran
+with `min_frequency=1` while our trainer required pair frequency >= 2.
+Relaxing our floor to >= 1 learns 1,159 merges on this corpus and reaches 5.15
+bytes/token, ahead of HF's 3.98. Note the tradeoff: on a large corpus the same
+relaxation learns tens of thousands of singleton merges with no vocab cap.
 
 ### How encoding works
 

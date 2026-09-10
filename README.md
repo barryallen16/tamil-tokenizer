@@ -216,11 +216,11 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
-| Encode throughput | 3-12 MB/s |
-| Time per document | 4-16 us |
+| Encode throughput (10K wiki lines) | ~23 MB/s (1K vocab), ~15 MB/s (30K wiki vocab) |
 
-Throughput varies run to run; the corpus is only 5 KB, so a few hundred documents fit
-in cache and the measurement is dominated by warmup.
+Throughput measured with `bench_speed` over 10,000 wiki lines x 3 repeats
+(3.1 MB per pass); run-to-run variance is ~1%. The 30K vocab is slower per byte
+because its automaton and rank scans are larger, but it emits half the tokens.
 
 ### Head-to-head, same inputs, measured here
 
@@ -265,9 +265,10 @@ scales cleanly. Compression on held-out wiki lines by merge budget:
 | 30,000 | 1.4 s | 8.31 |
 
 Even at 30K merges the tail pair frequency is 11, so no singleton junk appears
-and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). The small
-corpus still favors its in-domain model (2.77 vs 2.71 for the 30K wiki model):
-domain beats budget. Note the wiki corpus is noisy -- about a quarter of the
+and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). A 5,000-line
+wiki fuzz through encode/decode round-trips byte-exact on both the 1K and 30K
+vocabs. The small corpus still favors its in-domain model (2.77 vs 2.71 for the
+30K wiki model): domain beats budget. Note the wiki corpus is noisy -- about a quarter of the
 1K model's merges are ASCII markup fragments (`colo+r`, `j+pg`) -- so a
 production run wants markup stripping in extraction first.
 

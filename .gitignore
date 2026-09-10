@@ -5,8 +5,10 @@
 # Output directory
 /output/
 
-# Data directory (large corpus files)
-/data/
+# Large corpus files, but keep the 5 KB sample corpus so a fresh clone can
+# follow the README's first training command.
+/data/*
+!/data/tamil_corpus.txt
 
 # Python
 __pycache__/

@@ -1,0 +1,117 @@
+வணக்கம்! இது தமிழ் உரை.
+நன்றி. எப்படி இருக்கிறீர்கள்?
+தமிழ் ஒரு பழமையான மொழி. இது உலகின் மிகப் பழமையான மொழிகளில் ஒன்று.
+சென்னை தமிழ்நாட்டின் தலைநகரம்.
+இந்தியாவில் பல மொழிகள் பேசப்படுகின்றன.
+தமிழ், ஹிந்தி, தெலுங்கு, கன்னடம், மலையாளம் போன்ற மொழிகள் உள்ளன.
+AI மற்றும் machine learning மிகவும் வேகமாக வளர்ந்து வருகின்றன.
+Python ஒரு பிரபலமான programming language.
+இன்று வானிலை நன்றாக உள்ளது.
+37°C வெப்பநிலை இன்று பதிவாகியுள்ளது.
+இந்த ஆண்டு 2026 ஆகும்.
+கணினி அறிவியல் ஒரு சுவாரஸ்யமான துறை.
+Neural networks மூலம் deep learning செய்ய முடியும்.
+Tamil Nadu has a rich cultural heritage.
+கல்வி அனைவருக்கும் அவசியம்.
+ஹார்வர்டு பல்கலைக்கழகம் உலகப் புகழ்பெற்றது.
+The transformer architecture revolutionized NLP.
+GPT மற்றும் BERT போன்ற மாதிரிகள் transformer-ஐ அடிப்படையாகக் கொண்டவை.
+Tokenization என்பது text-ஐ tokens ஆக மாற்றும் செயல்முறை.
+BPE என்பது Byte Pair Encoding ஆகும்.
+Sushma சுவராஜ் ஒரு சிறந்த அரசியல்வாதி.
+0B80 முதல் 0BFF வரை Tamil Unicode block ஆகும்.
+சுருக்கம்: தமிழ் இலக்கியம் மிகவும் பணக்கமானது.
+ஒரு கணக்கு: 15 + 27 = 42.
+விலை ₹500 மற்றும் வரி 18%.
+இந்திய ரூபாய் ₹ குறியீட்டால் குறிக்கப்படுகிறது.
+@email முகவரி தேவைப்படுகிறது.
+URL: https://example.com இணையதளம்.
+temperature=25°C, humidity=80%.
+password: secret123 பயன்படுத்த வேண்டாம்.
+உணவு: இட்லி, தோசை, பொங்கல், சாம்பார்.
+Indian rupee symbol: ₹ இது இந்திய ரூபாயின் குறியீடு.
+© Copyright 2026 Tamil Tokenizer Project.
+All rights reserved. அனைத்து உரிமைகளும் பாதுகாக்கப்பட்டவை.
+data = {"name": "தமிழ்", "version": 1.0}
+array = [1, 2, 3, 4, 5]
+if (x > 0) { return true; }
+function hello() { console.log("வணக்கம்"); }
+SELECT * FROM users WHERE name = 'தமிழ்';
+INSERT INTO table VALUES (1, 'hello', 3.14);
+#!/bin/bash
+echo "Hello World"
+sudo apt-get install python3
+docker pull ubuntu:latest
+npm install --save express
+pip install transformers torch
+git commit -m "initial commit"
+192.168.1.1 localhost
+10.0.0.1 server
+port: 8080
+HTTP/1.1 200 OK
+Content-Type: application/json
+{"status": "success", "code": 200}
+404 Not Found
+500 Internal Server Error
+©®™±²ãîû
+Hello World! 你好世界 مرحبا العالم
+नमस्ते दुनिया
+Сәлем Дүние
+Γεια σου Κόσμε
+안녕하세요 세계
+こんにちは世界
+สวัสดีชาวโลก
+Merhaba Dünya
+مرحبا بك في عالم البرمجة
+The quick brown fox jumps over the lazy dog.
+Pack my box with five dozen liquor jugs.
+How vexingly quick daft zebras jump!
+The five boxing wizards jump quickly.
+0123456789 ABCDEF abcdef
+!@#$%^&*()_+-={}[]|;':",./<>?
+\t\n\r\b\f
+null undefined NaN Infinity
+true false boolean
+async await yield import export
+class interface extends implements
+public private protected static
+const let var function return
+break continue switch case default
+try catch throw finally
+while for do in of
+=== !== == != <= >=
+&& || ! ? :
+0xFF 0b1010 0o77 1e10
+3.14159 2.71828 1.41421
+sqrt(2) pow(2,10) log(e)
+sin(π) cos(0) tan(π/4)
+fibonacci(10) = 55
+factorial(5) = 120
+prime(7) = true
+gcd(12, 8) = 4
+lcm(4, 6) = 12
+abs(-42) = 42
+max(10, 20) = 20
+min(5, 3) = 3
+sum([1,2,3,4,5]) = 15
+avg([10,20,30]) = 20.0
+len("hello") = 5
+reverse("hello") = "olleh"
+upper("hello") = "HELLO"
+lower("HELLO") = "hello"
+trim("  hi  ") = "hi"
+split("a,b,c", ",") = ["a","b","c"]
+join(["a","b"], "-") = "a-b"
+map([1,2,3], x => x*2) = [2,4,6]
+filter([1,2,3,4], x => x>2) = [3,4]
+reduce([1,2,3], (a,b) => a+b) = 6
+type: string, number, boolean, object, array, null, undefined, function
+typeof "hello" = "string"
+typeof 42 = "number"
+typeof true = "boolean"
+typeof {} = "object"
+typeof [] = "object"
+typeof null = "object"
+typeof undefined = "undefined"
+typeof function(){} = "function"
+=== END OF CORPUS ===

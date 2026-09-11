@@ -30,6 +30,9 @@ Thumbs.db
 # Hugging Face upload artifacts
 hf_model_card.md
 
+# Model-comparison write-ups; local scratch, not part of the project
+analysis/
+
 # Temporary files
 *.tmp
 *.bak

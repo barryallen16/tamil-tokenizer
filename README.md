@@ -27,7 +27,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
 ├── main.rs                 # Interactive encoder/decoder REPL
-├── tests/lib.rs            # Test suite (37 tests)
+├── tests/lib.rs            # Test suite (39 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
 ├── scripts/extract_wiki_*.py # One-off Wikipedia corpus extraction
 └── data/tamil_corpus.txt   # 117-line sample corpus
@@ -39,13 +39,18 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 The Hugging Face repo
 **[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
-publishes training corpora but no tokenizer JSON (verified via the API file
-listing: only `tamil_corpus.txt`, `tamil_corpus_large.txt`, and
-`tamil_wiki_corpus.txt` exist). Its model card describes a 32K tokenizer file
-that is not downloadable, so none of its performance claims can be reproduced.
+publishes a trained 32K-merge tokenizer alongside the training corpora.
 
 ```bash
-# Download the 38 MB training corpus (this file exists)
+# Download the published 32K tokenizer (2.7 MB)
+curl -L -o output/tamil_tokenizer_wiki.json \
+  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
+
+# It loads with this repo's encoder:
+cargo run --release --bin encode -- ./output/tamil_tokenizer_wiki.json "வணக்கம்"
+# 490 334 2331
+
+# Download the 38 MB training corpus
 curl -L -o data/tamil_wiki_corpus.txt \
   https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_wiki_corpus.txt
 ```
@@ -292,10 +297,15 @@ instead of remapping them.
 
 ### The published 32K model
 
-The Hugging Face model card for `barryallen16/tamil-tokenizer-wiki` reports
-(32,015 vocab, 29,999 merges, 2.57 bytes/token, 10.95 MB/s), but the file those
-numbers describe is not in the repo's file listing, so they cannot be reproduced
-or checked. Treat them as unverified.
+The published model is 32,142 vocab entries (IDs 0–32141, contiguous) and 30,000
+ordered merges: 32,034 content tokens, 8 named specials, and 100 reserved slots.
+It was trained on the 38.8 MB wiki corpus in about 1.4 s.
+
+Two caveats on using it from Python: the file is in this repo's
+`{vocab, merges, metadata}` format, so `tokenizers.Tokenizer.from_file` will not
+load it — use the Rust CLI or `lib.rs` directly. And this repo makes no
+throughput comparison against other tokenizer libraries; the figures above are
+its own measurements only.
 
 ## Dependencies
 
@@ -310,14 +320,13 @@ or checked. Treat them as unverified.
 
 ## Hugging Face Integration
 
-The corpora used for training are published at
-[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki).
-No tokenizer JSON is published there, so there is nothing to download on the
-tokenizer side.
+The trained tokenizer is published at
+[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)
+as `tamil_tokenizer_wiki.json`, along with the corpora used to train it.
 
 ### Usage with the Rust CLI
 
 ```bash
-# Encode text with the locally trained tokenizer
-cargo run --release --bin encode -- ./output/tamil_tokenizer.json "வணக்கம்!"
+# Encode text with the published tokenizer
+cargo run --release --bin encode -- ./output/tamil_tokenizer_wiki.json "வணக்கம்!"
 ```

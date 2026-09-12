@@ -1,12 +1,15 @@
-pub mod vocab;
+pub mod encoder;
 pub mod pretokenizer;
 pub mod trainer;
-pub mod encoder;
+pub mod vocab;
 
-pub use vocab::{TamilTokenizer, TokenizerError, Result as TokenizerResult};
+pub use encoder::FastBPEEncoder;
 pub use pretokenizer::TamilPretokenizer;
 pub use trainer::OptimizedBPETrainer;
-pub use encoder::FastBPEEncoder;
+pub use vocab::{Result as TokenizerResult, TamilTokenizer, TokenizerError};
+
+/// A trained tokenizer file's contents: `token -> id` plus ordered merge pairs.
+pub type TrainedTokenizer = (rustc_hash::FxHashMap<String, u32>, Vec<(String, String)>);
 
 /// Load a vocab from either a trained tokenizer file (`{vocab, merges, metadata}`)
 /// or a flat `{token: id}` map.
@@ -18,16 +21,16 @@ pub fn load_vocab(path: &str) -> TokenizerResult<rustc_hash::FxHashMap<String, u
         .ok_or_else(|| TokenizerError::InvalidData(format!("{}: expected a JSON object", path)))?
         .iter()
         .map(|(k, v)| {
-            v.as_u64()
-                .map(|id| (k.clone(), id as u32))
-                .ok_or_else(|| TokenizerError::InvalidData(format!("{}: id for {:?} is not an integer", path, k)))
+            v.as_u64().map(|id| (k.clone(), id as u32)).ok_or_else(|| {
+                TokenizerError::InvalidData(format!("{}: id for {:?} is not an integer", path, k))
+            })
         })
         .collect()
 }
 
 /// Load a full trained tokenizer file: vocab plus ordered merge pairs.
 /// Returns an empty merge list for flat `{token: id}` maps.
-pub fn load_tokenizer(path: &str) -> TokenizerResult<(rustc_hash::FxHashMap<String, u32>, Vec<(String, String)>)> {
+pub fn load_tokenizer(path: &str) -> TokenizerResult<TrainedTokenizer> {
     let data = std::fs::read_to_string(path)?;
     let json: serde_json::Value = serde_json::from_str(&data)?;
     let vocab_obj = json

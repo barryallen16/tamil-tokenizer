@@ -1,6 +1,6 @@
-use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::io::{self, BufRead};
 use std::time::Instant;
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -9,11 +9,15 @@ fn main() {
         std::process::exit(1);
     }
 
-    let (vocab, merges) = load_tokenizer(&args[1])
-        .unwrap_or_else(|e| { eprintln!("Failed to load vocab: {}", e); std::process::exit(1); });
+    let (vocab, merges) = load_tokenizer(&args[1]).unwrap_or_else(|e| {
+        eprintln!("Failed to load vocab: {}", e);
+        std::process::exit(1);
+    });
 
-    let encoder = FastBPEEncoder::new_with_merges(vocab, &merges)
-        .unwrap_or_else(|e| { eprintln!("Failed to create encoder: {}", e); std::process::exit(1); });
+    let encoder = FastBPEEncoder::new_with_merges(vocab, &merges).unwrap_or_else(|e| {
+        eprintln!("Failed to create encoder: {}", e);
+        std::process::exit(1);
+    });
 
     let repeats: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
 
@@ -41,7 +45,8 @@ fn main() {
     let elapsed = start.elapsed();
 
     let total_bytes: usize = lines.iter().map(|l| l.len()).sum();
-    let throughput = (total_bytes as f64 * repeats as f64) / elapsed.as_secs_f64() / (1024.0 * 1024.0);
+    let throughput =
+        (total_bytes as f64 * repeats as f64) / elapsed.as_secs_f64() / (1024.0 * 1024.0);
     let avg_per_doc = elapsed.as_secs_f64() / repeats as f64 / lines.len() as f64 * 1e6;
 
     let result = serde_json::json!({

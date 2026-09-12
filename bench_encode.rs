@@ -1,5 +1,5 @@
-use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 use std::io::{self, BufRead};
+use tamil_tokenizer::{load_tokenizer, FastBPEEncoder};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -10,8 +10,8 @@ fn main() {
 
     let (vocab, merges) = load_tokenizer(&args[1]).expect("Failed to load vocab");
 
-    let encoder = FastBPEEncoder::new_with_merges(vocab, &merges)
-        .expect("Failed to create encoder");
+    let encoder =
+        FastBPEEncoder::new_with_merges(vocab, &merges).expect("Failed to create encoder");
 
     if args.len() >= 3 {
         let text = &args[2];

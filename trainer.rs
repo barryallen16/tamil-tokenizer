@@ -269,7 +269,7 @@ impl OptimizedBPETrainer {
                 *self.pair_freq.entry(pair_key).or_insert(0) += freq;
                 self.pair_positions
                     .entry(pair_key)
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(word_id);
             } else {
                 if let Some(count) = self.pair_freq.get_mut(&pair_key) {

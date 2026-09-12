@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use tamil_tokenizer::{TamilTokenizer, TamilPretokenizer, FastBPEEncoder};
     use rustc_hash::FxHashMap;
+    use tamil_tokenizer::{FastBPEEncoder, TamilPretokenizer, TamilTokenizer};
 
     fn make_encoder() -> FastBPEEncoder {
         let tok = TamilTokenizer::new();
@@ -142,10 +142,7 @@ mod tests {
     #[test]
     fn test_pretokenizer_special_token_is_its_own_chunk() {
         let p = TamilPretokenizer::new();
-        assert_eq!(
-            p.pretokenize("<|endoftext|>"),
-            vec!["<|endoftext|>"]
-        );
+        assert_eq!(p.pretokenize("<|endoftext|>"), vec!["<|endoftext|>"]);
         assert_eq!(
             p.pretokenize("<|endoftext|> hello"),
             vec!["<|endoftext|>", " hello"]
@@ -175,14 +172,18 @@ mod tests {
     fn test_encoder_bos_eos_wrapping() {
         let enc = make_encoder();
         let ids = enc.encode("123");
-        assert!(ids.len() >= 3, "Expected BOS + tokens + EOS, got {}", ids.len());
+        assert!(
+            ids.len() >= 3,
+            "Expected BOS + tokens + EOS, got {}",
+            ids.len()
+        );
     }
 
     #[test]
     fn test_encoder_ordinary_no_bos_eos() {
         let enc = make_encoder();
         let ids = enc.encode_ordinary("123");
-        assert!(ids.len() >= 1);
+        assert!(!ids.is_empty());
     }
 
     #[test]
@@ -314,7 +315,11 @@ mod tests {
         let enc = make_encoder();
         let text = "வணக்கம் இது தமிழ்";
         let ratio = text.len() as f64 / enc.encode_ordinary(text).len() as f64;
-        assert!(ratio > 2.0, "Tamil bytes/token {:.2} should exceed 2.0", ratio);
+        assert!(
+            ratio > 2.0,
+            "Tamil bytes/token {:.2} should exceed 2.0",
+            ratio
+        );
     }
 
     /// Byte tokens use stand-in chars U+0100..U+01A1. Real text containing those
@@ -354,8 +359,8 @@ mod tests {
             ("a".to_string(), "b".to_string()),
             ("ab".to_string(), "c".to_string()),
         ];
-        let enc = FastBPEEncoder::new_with_merges(vocab, &merges)
-            .expect("Failed to create test encoder");
+        let enc =
+            FastBPEEncoder::new_with_merges(vocab, &merges).expect("Failed to create test encoder");
         assert_eq!(enc.encode_ordinary("abc"), vec![4]);
     }
 

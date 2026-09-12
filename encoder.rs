@@ -1,16 +1,14 @@
-use std::sync::Arc;
-use rustc_hash::FxHashMap;
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder, Anchored, Input, MatchKind, StartKind};
 use crate::pretokenizer::TamilPretokenizer;
-use crate::vocab::{TamilTokenizer, TokenizerError, Result};
-
+use crate::vocab::{Result, TamilTokenizer, TokenizerError};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, Anchored, Input, MatchKind, StartKind};
+use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct SpecialTokenConfig {
     pub core_tokens: Vec<String>,
     pub custom_tokens: Vec<String>,
 }
-
 
 impl Default for SpecialTokenConfig {
     fn default() -> Self {
@@ -30,7 +28,6 @@ impl Default for SpecialTokenConfig {
         }
     }
 }
-
 
 #[allow(dead_code)]
 pub struct FastBPEEncoder {
@@ -52,25 +49,33 @@ pub struct FastBPEEncoder {
     reserved_end: u32,
 }
 
-
 impl FastBPEEncoder {
     pub fn new(vocab: FxHashMap<String, u32>) -> Result<Self> {
         Self::new_with_config(vocab, SpecialTokenConfig::default())
     }
 
-
-    pub fn new_with_config(vocab: FxHashMap<String, u32>, config: SpecialTokenConfig) -> Result<Self> {
+    pub fn new_with_config(
+        vocab: FxHashMap<String, u32>,
+        config: SpecialTokenConfig,
+    ) -> Result<Self> {
         Self::build(vocab, config, &[])
     }
 
     /// Build from a trained tokenizer file: vocab plus ordered merge pairs.
     /// Merge order is applied at encode time (true BPE); without merges the
     /// encoder falls back to longest-match over the vocab.
-    pub fn new_with_merges(vocab: FxHashMap<String, u32>, merges: &[(String, String)]) -> Result<Self> {
+    pub fn new_with_merges(
+        vocab: FxHashMap<String, u32>,
+        merges: &[(String, String)],
+    ) -> Result<Self> {
         Self::build(vocab, SpecialTokenConfig::default(), merges)
     }
 
-    fn build(mut vocab: FxHashMap<String, u32>, config: SpecialTokenConfig, merges: &[(String, String)]) -> Result<Self> {
+    fn build(
+        mut vocab: FxHashMap<String, u32>,
+        config: SpecialTokenConfig,
+        merges: &[(String, String)],
+    ) -> Result<Self> {
         let base_vocab_size = vocab.values().max().copied().unwrap_or(0) + 1;
 
         // Reuse IDs already in the file so a trained tokenizer keeps its IDs.
@@ -85,11 +90,11 @@ impl FastBPEEncoder {
             vocab.insert(token, id);
             id
         };
-        
+
         let mut special_tokens = FxHashMap::default();
         let mut special_token_ids = Vec::new();
         let mut all_special_token_strings = Vec::new();
-        
+
         for token in config.core_tokens.into_iter().chain(config.custom_tokens) {
             let id = claim(&mut vocab, token.clone());
             special_tokens.insert(token.clone(), id);
@@ -98,10 +103,18 @@ impl FastBPEEncoder {
         }
 
         let named_tokens_start = special_token_ids.iter().copied().min().unwrap_or(next_id);
-        let named_tokens_end = special_token_ids.iter().copied().max().map(|m| m + 1).unwrap_or(next_id);
+        let named_tokens_end = special_token_ids
+            .iter()
+            .copied()
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(next_id);
 
         let reserved_count = 100usize;
-        let existing_reserved = vocab.keys().filter(|k| k.starts_with("<|reserved_")).count();
+        let existing_reserved = vocab
+            .keys()
+            .filter(|k| k.starts_with("<|reserved_"))
+            .count();
         for _ in 0..reserved_count.saturating_sub(existing_reserved) {
             let id = next_id;
             next_id += 1;
@@ -116,19 +129,31 @@ impl FastBPEEncoder {
             .map(|(_, &id)| id)
             .collect();
         let reserved_start = reserved_ids.iter().copied().min().unwrap_or(next_id);
-        let reserved_end = reserved_ids.iter().copied().max().map(|m| m + 1).unwrap_or(next_id).max(named_tokens_end);
+        let reserved_end = reserved_ids
+            .iter()
+            .copied()
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(next_id)
+            .max(named_tokens_end);
 
-        let special_token_patterns: Vec<&str> = all_special_token_strings.iter()
+        let special_token_patterns: Vec<&str> = all_special_token_strings
+            .iter()
             .map(|s| s.as_str())
             .collect();
         let special_token_automaton = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
             .build(&special_token_patterns)
-            .map_err(|e| TokenizerError::InvalidData(format!("Failed to build special token automaton: {}", e)))?;
+            .map_err(|e| {
+                TokenizerError::InvalidData(format!(
+                    "Failed to build special token automaton: {}",
+                    e
+                ))
+            })?;
 
         let vocab_size = next_id as usize;
         let mut id_to_token = vec![String::new(); vocab_size];
-        
+
         for (token, &id) in &vocab {
             id_to_token[id as usize] = token.clone();
         }
@@ -146,7 +171,10 @@ impl FastBPEEncoder {
         let mut merge_ranks: FxHashMap<String, FxHashMap<String, u32>> = FxHashMap::default();
         let mut merged_strings = std::collections::HashSet::new();
         for (rank, (a, b)) in merges.iter().enumerate() {
-            merge_ranks.entry(a.clone()).or_default().insert(b.clone(), rank as u32);
+            merge_ranks
+                .entry(a.clone())
+                .or_default()
+                .insert(b.clone(), rank as u32);
             merged_strings.insert(format!("{}{}", a, b));
         }
 
@@ -159,7 +187,12 @@ impl FastBPEEncoder {
             .match_kind(MatchKind::LeftmostLongest)
             .start_kind(StartKind::Anchored)
             .build(&base_patterns)
-            .map_err(|e| TokenizerError::InvalidData(format!("Failed to build Aho-Corasick automaton: {}", e)))?;
+            .map_err(|e| {
+                TokenizerError::InvalidData(format!(
+                    "Failed to build Aho-Corasick automaton: {}",
+                    e
+                ))
+            })?;
 
         let mut token_to_id_bytes: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
         for (token, &id) in &vocab {
@@ -168,11 +201,18 @@ impl FastBPEEncoder {
 
         eprintln!("\n=== o200k-style Special Token Assignment ===");
         eprintln!("Base vocabulary size: {}", base_vocab_size);
-        eprintln!("Named special tokens: {} to {} ({} tokens)",
-                 named_tokens_start, named_tokens_end - 1,
-                 named_tokens_end - named_tokens_start);
-        eprintln!("Reserved tokens: {} to {} ({} tokens)",
-                 reserved_start, reserved_end - 1, reserved_count);
+        eprintln!(
+            "Named special tokens: {} to {} ({} tokens)",
+            named_tokens_start,
+            named_tokens_end - 1,
+            named_tokens_end - named_tokens_start
+        );
+        eprintln!(
+            "Reserved tokens: {} to {} ({} tokens)",
+            reserved_start,
+            reserved_end - 1,
+            reserved_count
+        );
         eprintln!("Total vocab size: {}\n", vocab_size);
 
         eprintln!("Named Special Tokens:");
@@ -198,7 +238,7 @@ impl FastBPEEncoder {
             named_tokens_start,
             named_tokens_end,
             reserved_start,
-            reserved_end: reserved_end as u32,
+            reserved_end,
         })
     }
 
@@ -251,7 +291,7 @@ impl FastBPEEncoder {
                 let a = &chunk[symbols[i].0..symbols[i].1];
                 let b = &chunk[symbols[i + 1].0..symbols[i + 1].1];
                 if let Some(&rank) = self.merge_ranks.get(a).and_then(|m| m.get(b)) {
-                    if best.map_or(true, |(_, r)| rank < r) {
+                    if best.is_none_or(|(_, r)| rank < r) {
                         best = Some((i, rank));
                     }
                 }
@@ -330,7 +370,9 @@ impl FastBPEEncoder {
     fn decode_inner(&self, token_ids: &[u32]) -> String {
         let mut bytes: Vec<u8> = Vec::with_capacity(token_ids.len() * 4);
         for &id in token_ids {
-            let Some(token) = self.id_to_token.get(id as usize) else { continue };
+            let Some(token) = self.id_to_token.get(id as usize) else {
+                continue;
+            };
             for ch in token.chars() {
                 match self.byte_decoder.get(&ch) {
                     Some(&b) => bytes.push(b),

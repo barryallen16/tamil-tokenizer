@@ -6,6 +6,12 @@ pub struct TamilPretokenizer {
     pattern: Regex,
 }
 
+impl Default for TamilPretokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TamilPretokenizer {
     pub fn new() -> Self {
         // Every alternative after the first must be introduced by '|'. Omitting it
@@ -13,17 +19,16 @@ impl TamilPretokenizer {
         let pattern_str = concat!(
             r"<\|[a-z_]+\|>",
             r"| ?(?:\p{L}\p{M}*)+['\u2019](?:\p{L}\p{M}*)+", // words with apostrophes
-            r"|_(?:\p{Ll}\p{M}*)+",                         // words starting with underscore
-            r"| ?(?:\p{Lu}\p{M}*)+",                        // uppercase sequences
-            r"| ?(?:\p{Ll}\p{M}*)+",                        // lowercase or mixed
-            r"| ?(?:[\p{Lt}\p{Lm}\p{Lo}]\p{M}*)+",          // Tamil/Indic letters
-            r"|(?:\p{N}\p{M}*)+",                           // numbers
-            r"| ?(?:[\p{P}\p{S}]\p{M}*)+",                  // punctuation and symbols
-            r"|[^\S\r\n]*[\n\r]+|[^\S\r\n]+",               // whitespace/newlines
-            r"|(?:[\p{Z}\p{C}]\p{M}*)+",                    // separators/controls
-            r"|\p{M}+"                                      // stray marks
+            r"|_(?:\p{Ll}\p{M}*)+",                          // words starting with underscore
+            r"| ?(?:\p{Lu}\p{M}*)+",                         // uppercase sequences
+            r"| ?(?:\p{Ll}\p{M}*)+",                         // lowercase or mixed
+            r"| ?(?:[\p{Lt}\p{Lm}\p{Lo}]\p{M}*)+",           // Tamil/Indic letters
+            r"|(?:\p{N}\p{M}*)+",                            // numbers
+            r"| ?(?:[\p{P}\p{S}]\p{M}*)+",                   // punctuation and symbols
+            r"|[^\S\r\n]*[\n\r]+|[^\S\r\n]+",                // whitespace/newlines
+            r"|(?:[\p{Z}\p{C}]\p{M}*)+",                     // separators/controls
+            r"|\p{M}+"                                       // stray marks
         );
-
 
         let pattern = Regex::new(pattern_str).unwrap();
 

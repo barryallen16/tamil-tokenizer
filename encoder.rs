@@ -29,10 +29,8 @@ impl Default for SpecialTokenConfig {
     }
 }
 
-#[allow(dead_code)]
 pub struct FastBPEEncoder {
     token_to_id: Arc<FxHashMap<String, u32>>,
-    token_to_id_bytes: Arc<FxHashMap<Vec<u8>, u32>>,
     id_to_token: Arc<Vec<String>>,
     base_automaton: Arc<AhoCorasick>,
     merge_ranks: FxHashMap<String, FxHashMap<String, u32>>,
@@ -40,12 +38,8 @@ pub struct FastBPEEncoder {
     byte_encoder: FxHashMap<u8, char>,
     byte_decoder: FxHashMap<char, u8>,
     special_tokens: FxHashMap<String, u32>,
-    special_token_ids: Vec<u32>,
-    special_token_automaton: AhoCorasick,
-    base_vocab_size: u32,
     named_tokens_start: u32,
     named_tokens_end: u32,
-    reserved_start: u32,
     reserved_end: u32,
 }
 
@@ -93,13 +87,11 @@ impl FastBPEEncoder {
 
         let mut special_tokens = FxHashMap::default();
         let mut special_token_ids = Vec::new();
-        let mut all_special_token_strings = Vec::new();
 
         for token in config.core_tokens.into_iter().chain(config.custom_tokens) {
             let id = claim(&mut vocab, token.clone());
-            special_tokens.insert(token.clone(), id);
+            special_tokens.insert(token, id);
             special_token_ids.push(id);
-            all_special_token_strings.push(token);
         }
 
         let named_tokens_start = special_token_ids.iter().copied().min().unwrap_or(next_id);
@@ -119,8 +111,7 @@ impl FastBPEEncoder {
             let id = next_id;
             next_id += 1;
             let reserved_token = format!("<|reserved_{}|>", id);
-            vocab.insert(reserved_token.clone(), id);
-            all_special_token_strings.push(reserved_token);
+            vocab.insert(reserved_token, id);
         }
 
         let reserved_ids: Vec<u32> = vocab
@@ -128,7 +119,6 @@ impl FastBPEEncoder {
             .filter(|(k, _)| k.starts_with("<|reserved_"))
             .map(|(_, &id)| id)
             .collect();
-        let reserved_start = reserved_ids.iter().copied().min().unwrap_or(next_id);
         let reserved_end = reserved_ids
             .iter()
             .copied()
@@ -136,20 +126,6 @@ impl FastBPEEncoder {
             .map(|m| m + 1)
             .unwrap_or(next_id)
             .max(named_tokens_end);
-
-        let special_token_patterns: Vec<&str> = all_special_token_strings
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
-        let special_token_automaton = AhoCorasickBuilder::new()
-            .match_kind(MatchKind::LeftmostLongest)
-            .build(&special_token_patterns)
-            .map_err(|e| {
-                TokenizerError::InvalidData(format!(
-                    "Failed to build special token automaton: {}",
-                    e
-                ))
-            })?;
 
         let vocab_size = next_id as usize;
         let mut id_to_token = vec![String::new(); vocab_size];
@@ -194,37 +170,8 @@ impl FastBPEEncoder {
                 ))
             })?;
 
-        let mut token_to_id_bytes: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
-        for (token, &id) in &vocab {
-            token_to_id_bytes.insert(token.as_bytes().to_vec(), id);
-        }
-
-        eprintln!("\n=== o200k-style Special Token Assignment ===");
-        eprintln!("Base vocabulary size: {}", base_vocab_size);
-        eprintln!(
-            "Named special tokens: {} to {} ({} tokens)",
-            named_tokens_start,
-            named_tokens_end - 1,
-            named_tokens_end - named_tokens_start
-        );
-        eprintln!(
-            "Reserved tokens: {} to {} ({} tokens)",
-            reserved_start,
-            reserved_end - 1,
-            reserved_count
-        );
-        eprintln!("Total vocab size: {}\n", vocab_size);
-
-        eprintln!("Named Special Tokens:");
-        let mut special_sorted: Vec<_> = special_tokens.iter().collect();
-        special_sorted.sort_by_key(|(_, id)| *id);
-        for (token, id) in special_sorted {
-            eprintln!("  {} = {}", id, token);
-        }
-
         Ok(Self {
             token_to_id: Arc::new(vocab),
-            token_to_id_bytes: Arc::new(token_to_id_bytes),
             id_to_token: Arc::new(id_to_token),
             base_automaton: Arc::new(base_automaton),
             merge_ranks,
@@ -232,12 +179,8 @@ impl FastBPEEncoder {
             byte_encoder: byte_encoder.into_iter().collect(),
             byte_decoder: byte_decoder.into_iter().collect(),
             special_tokens,
-            special_token_ids,
-            special_token_automaton,
-            base_vocab_size,
             named_tokens_start,
             named_tokens_end,
-            reserved_start,
             reserved_end,
         })
     }

@@ -378,4 +378,27 @@ mod tests {
             );
         }
     }
+
+    /// A vocab with an ID past the end used to index `id_to_token` directly and
+    /// panic with an out-of-bounds index. It must be rejected as bad data
+    /// instead, because a malformed tokenizer file is untrusted input.
+    #[test]
+    fn test_malformed_vocab_is_rejected_not_panicked() {
+        let mut sparse: FxHashMap<String, u32> = FxHashMap::default();
+        sparse.insert("a".to_string(), 0);
+        sparse.insert("b".to_string(), u32::MAX);
+        assert!(
+            FastBPEEncoder::new(sparse).is_err(),
+            "sparse ids must be rejected"
+        );
+
+        // Dense prefix but a hole before the end: would silently decode to "".
+        let mut gap: FxHashMap<String, u32> = FxHashMap::default();
+        gap.insert("a".to_string(), 0);
+        gap.insert("b".to_string(), 7);
+        assert!(
+            FastBPEEncoder::new(gap).is_err(),
+            "gapped ids must be rejected"
+        );
+    }
 }

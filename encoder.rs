@@ -130,8 +130,24 @@ impl FastBPEEncoder {
         let vocab_size = next_id as usize;
         let mut id_to_token = vec![String::new(); vocab_size];
 
+        // A vocab whose IDs are not dense 0..vocab_size would either panic here
+        // or silently decode to the wrong token, so reject it up front. This also
+        // stops a huge ID from sizing the vector into an allocation bomb.
         for (token, &id) in &vocab {
+            if id as usize >= vocab_size {
+                return Err(TokenizerError::InvalidData(format!(
+                    "token {:?} has id {} but vocab_size is {}: ids must be \
+                     contiguous from 0",
+                    token, id, vocab_size
+                )));
+            }
             id_to_token[id as usize] = token.clone();
+        }
+
+        if id_to_token.iter().any(String::is_empty) {
+            return Err(TokenizerError::InvalidData(
+                "vocab has a gap in its ids; ids must be contiguous from 0".to_string(),
+            ));
         }
 
         // The vocab mixes raw-text tokens (Tamil clusters and merges, trained on

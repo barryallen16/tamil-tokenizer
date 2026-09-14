@@ -27,7 +27,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
 ├── main.rs                 # Interactive encoder/decoder REPL
-├── tests/lib.rs            # Test suite (39 tests)
+├── tests/lib.rs            # Test suite (40 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
 ├── scripts/extract_wiki_*.py # One-off Wikipedia corpus extraction
 └── data/tamil_corpus.txt   # 117-line sample corpus

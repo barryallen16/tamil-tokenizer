@@ -97,6 +97,12 @@ pub struct OptimizedBPETrainer {
     merges: Vec<(String, String)>,
     tamil_clusters: HashSet<String>,
     total_time: Duration,
+
+    /// A pair must reach this frequency to become a merge. At 1 the trainer
+    /// learns every singleton it can; raising it trades vocab size for merges
+    /// that are actually common, which is what keeps a large corpus from
+    /// producing a tail of one-off merges.
+    min_frequency: u32,
 }
 
 // ============================================================================
@@ -134,7 +140,15 @@ impl OptimizedBPETrainer {
             merges: Vec::new(),
             tamil_clusters,
             total_time: Duration::ZERO,
+            min_frequency: 1,
         }
+    }
+
+    /// Set the minimum pair frequency a merge must reach. Defaults to 1, which
+    /// learns every possible merge; use 2 or higher to skip rare pairs.
+    pub fn set_min_frequency(&mut self, min_frequency: u32) {
+        self.min_frequency = min_frequency.max(1);
+        self.rebuild_heap();
     }
 
     pub fn initialize_from_corpus(&mut self, corpus_path: &str) -> std::io::Result<()> {
@@ -292,7 +306,7 @@ impl OptimizedBPETrainer {
         let mut pairs_vec: Vec<(u64, u32)> = self
             .pair_freq
             .iter()
-            .filter(|&(_, &freq)| freq >= 1)
+            .filter(|&(_, &freq)| freq >= self.min_frequency)
             .map(|(&key, &freq)| (key, freq))
             .collect();
 
@@ -394,7 +408,7 @@ impl OptimizedBPETrainer {
                     .into_iter()
                     .filter_map(|(pair_key, _)| {
                         self.pair_freq.get(&pair_key).and_then(|&freq| {
-                            if freq >= 1 {
+                            if freq >= self.min_frequency {
                                 Some((pair_key, freq))
                             } else {
                                 None

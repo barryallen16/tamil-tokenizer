@@ -6,13 +6,14 @@ fn main() {
 
     if args.len() < 4 {
         eprintln!(
-            "Usage: {} <corpus_file> <num_merges> <output_vocab>",
+            "Usage: {} <corpus_file> <num_merges> <output_vocab> [min_frequency]",
             args[0]
         );
         eprintln!(
             "Example: {} ./data/tamil_corpus.txt 50000 ./output/tamil_tokenizer.json",
             args[0]
         );
+        eprintln!("min_frequency defaults to 1 (learn every merge); pass 2+ to skip rare pairs.");
         std::process::exit(1);
     }
 
@@ -25,18 +26,29 @@ fn main() {
         }
     };
     let output_file = &args[3];
+    let min_frequency: u32 = match args.get(4) {
+        Some(v) => match v.parse::<u32>() {
+            Ok(n) => n.max(1),
+            Err(_) => {
+                eprintln!("Error: '{}' is not a valid min_frequency", v);
+                std::process::exit(1);
+            }
+        },
+        None => 1,
+    };
 
     println!("=== Training Tamil Tokenizer ===");
     println!("Corpus: {}", corpus_file);
     println!("Merges: {}", num_merges);
+    println!("Min frequency: {}", min_frequency);
     println!("Output: {}\n", output_file);
 
     // Initialize with base vocabulary
     let tokenizer = TamilTokenizer::new();
-    let _sorted_vocab = tokenizer.get_sorted_vocab();
     let vocab_ahash: ahash::AHashMap<String, u32> = tokenizer.vocab.into_iter().collect();
 
     let mut trainer = OptimizedBPETrainer::new(vocab_ahash);
+    trainer.set_min_frequency(min_frequency);
 
     // Train
     println!("Loading corpus...");

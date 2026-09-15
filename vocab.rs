@@ -131,20 +131,6 @@ impl TamilTokenizer {
         }
     }
 
-    pub fn get_sorted_vocab(&self) -> HashMap<String, u32> {
-        let mut vocab_vec: Vec<_> = self.vocab.iter().map(|(k, &v)| (k.clone(), v)).collect();
-        vocab_vec.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by token string lexicographically
-
-        // Reassign IDs in sorted order (0, 1, 2, ...)
-        let sorted_vocab: HashMap<String, u32> = vocab_vec
-            .into_iter()
-            .enumerate()
-            .map(|(idx, (token, _))| (token, idx as u32))
-            .collect();
-
-        sorted_vocab
-    }
-
     /// Create GPT-2 style byte-to-unicode mapping
     /// Maps control chars and space to printable Unicode characters for visibility
     pub fn create_byte_mappings() -> (HashMap<u8, char>, HashMap<char, u8>) {
@@ -179,59 +165,6 @@ impl TamilTokenizer {
         (byte_encoder, byte_decoder)
     }
 
-    /// Generate 247 Tamil character clusters using Unicode codepoints
-    #[allow(dead_code)]
-    fn generate_tamil_clusters() -> Vec<String> {
-        let mut clusters = Vec::new();
-
-        // 12 independent vowels
-        let vowel_codepoints = [
-            0x0B85, 0x0B86, 0x0B87, 0x0B88, 0x0B89, 0x0B8A, 0x0B8E, 0x0B8F, 0x0B90, 0x0B92, 0x0B93,
-            0x0B94,
-        ];
-        for &cp in &vowel_codepoints {
-            if let Some(ch) = std::char::from_u32(cp) {
-                clusters.push(ch.to_string());
-            }
-        }
-
-        // 18 consonants
-        let consonant_codepoints = [
-            0x0B95, 0x0B99, 0x0B9A, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, 0x0BA8, 0x0BAA, 0x0BAE, 0x0BAF,
-            0x0BB0, 0x0BB2, 0x0BB5, 0x0BB4, 0x0BB3, 0x0BB1, 0x0BA9,
-        ];
-        for &cp in &consonant_codepoints {
-            if let Some(ch) = std::char::from_u32(cp) {
-                clusters.push(ch.to_string());
-            }
-        }
-
-        // 12 vowel signs
-        let vowel_sign_codepoints = [
-            0x0BBE, 0x0BBF, 0x0BC0, 0x0BC1, 0x0BC2, 0x0BC6, 0x0BC7, 0x0BC8, 0x0BCA, 0x0BCB, 0x0BCC,
-            0x0BCD,
-        ];
-
-        // Generate 18 × 12 = 216 combinations
-        for &consonant_cp in &consonant_codepoints {
-            for &sign_cp in &vowel_sign_codepoints {
-                if let (Some(c), Some(sign)) = (
-                    std::char::from_u32(consonant_cp),
-                    std::char::from_u32(sign_cp),
-                ) {
-                    clusters.push(format!("{}{}", c, sign));
-                }
-            }
-        }
-
-        // 1 special character ஃ
-        if let Some(ch) = std::char::from_u32(0x0B83) {
-            clusters.push(ch.to_string());
-        }
-
-        clusters
-    }
-
     /// Decode a token back to its original byte representation
     pub fn decode_token(&self, token: &str) -> Vec<u8> {
         token
@@ -239,14 +172,6 @@ impl TamilTokenizer {
             .filter_map(|ch| self.byte_decoder.get(&ch).copied())
             .collect()
     }
-
-    // pub fn save_vocab(&self, path: &str) -> std::io::Result<()> {
-    //     let json = serde_json::to_string_pretty(&self.vocab)
-    //         .expect("Serialization failed");
-    //     let mut file = File::create(path)?;
-    //     file.write_all(json.as_bytes())?;
-    //     Ok(())
-    // }
 
     pub fn save_vocab(&self, path: &str) -> Result<()> {
         // use std::collections::BTreeMap;
@@ -307,7 +232,8 @@ impl TamilTokenizer {
     pub fn print_stats(&self) {
         println!("Total vocabulary size: {}", self.vocab.len());
         println!("Byte-level tokens (all 256 bytes, GPT-2 style): 256");
-        println!("Tamil clustered characters: 247");
+        println!("Tamil consonant+vowel clusters: 216");
+        println!("Standalone Tamil characters: 31");
         println!("Tamil digits: 10");
         println!("Extra Tamil characters: 11");
 

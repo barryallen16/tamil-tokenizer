@@ -4,7 +4,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ## Features
 
-- **Tamil-aware vocabulary** — 247 pre-built Tamil character clusters (consonant+vowel sign combinations) as base tokens
+- **Tamil-aware base vocabulary** — 524 tokens with no training: 256 byte tokens, 216 consonant+vowel-sign clusters, 31 standalone Tamil characters, and 21 digits and symbols
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
 - **Special token support** — BOS/EOS, language tags, question/answer markers, and 100 reserved slots (o200k-style layout)
@@ -27,7 +27,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
 ├── main.rs                 # Interactive encoder/decoder REPL
-├── tests/lib.rs            # Test suite (40 tests)
+├── tests/lib.rs            # Test suite (43 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
 ├── scripts/extract_wiki_*.py # One-off Wikipedia corpus extraction
 └── data/tamil_corpus.txt   # 117-line sample corpus
@@ -115,10 +115,9 @@ use tamil_tokenizer::{TamilTokenizer, OptimizedBPETrainer};
 
 // Initialize base vocabulary
 let tokenizer = TamilTokenizer::new();
-let vocab = tokenizer.get_sorted_vocab();
 
 // Create trainer and load corpus
-let mut trainer = OptimizedBPETrainer::new(vocab);
+let mut trainer = OptimizedBPETrainer::new(tokenizer.vocab);
 trainer.initialize_from_corpus("./data/tamil_corpus.txt");
 
 // Train with 50,000 merges
@@ -218,6 +217,10 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Metric | Value |
 |--------|------:|
 | Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
+
+The 907 base is larger than the 524-token untrained base because the trainer
+also mints IDs for Tamil clusters it finds in the corpus that are not already in
+the base vocab; that count depends on the corpus.
 | Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
@@ -292,8 +295,9 @@ a stand-in are kept out of the matcher, so real text containing those characters
 (for example Polish or Turkish letters) is never mistaken for raw bytes.
 
 Special tokens keep the IDs stored in the file: a trained vocab already contains
-them (907-914 named, 915-1014 reserved here), and the encoder reuses those IDs
-instead of remapping them.
+them, and the encoder reuses those IDs instead of remapping them. The exact
+where they start depends on the corpus, because the trainer mints IDs for
+clusters it discovers while reading.
 
 ### The published 32K model
 

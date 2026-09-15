@@ -5,7 +5,7 @@ mod tests {
 
     fn make_encoder() -> FastBPEEncoder {
         let tok = TamilTokenizer::new();
-        let vocab: FxHashMap<String, u32> = tok.get_sorted_vocab().into_iter().collect();
+        let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
         FastBPEEncoder::new(vocab).expect("Failed to create test encoder")
     }
 
@@ -34,24 +34,17 @@ mod tests {
         }
     }
 
+    /// The encoder indexes `id_to_token` by ID, so the base vocab's IDs must be
+    /// unique and dense from 0. `new()` assigns them sequentially.
     #[test]
-    fn test_sorted_vocab_no_duplicates() {
+    fn test_base_vocab_ids_unique_and_contiguous() {
         let tok = TamilTokenizer::new();
-        let sorted = tok.get_sorted_vocab();
-        let mut ids: Vec<u32> = sorted.values().copied().collect();
-        ids.sort();
+        let mut ids: Vec<u32> = tok.vocab.values().copied().collect();
+        ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), sorted.len());
-    }
-
-    #[test]
-    fn test_sorted_vocab_ids_contiguous() {
-        let tok = TamilTokenizer::new();
-        let sorted = tok.get_sorted_vocab();
-        let mut ids: Vec<u32> = sorted.values().copied().collect();
-        ids.sort();
+        assert_eq!(ids.len(), tok.vocab.len(), "duplicate ids in base vocab");
         for (i, &id) in ids.iter().enumerate() {
-            assert_eq!(id, i as u32);
+            assert_eq!(id, i as u32, "base vocab ids are not contiguous");
         }
     }
 
@@ -400,5 +393,97 @@ mod tests {
             FastBPEEncoder::new(gap).is_err(),
             "gapped ids must be rejected"
         );
+    }
+
+    // === OptimizedBPETrainer ===
+
+    const CORPUS: &str = "./data/tamil_corpus.txt";
+
+    fn trained(merges: usize, min_frequency: u32) -> tamil_tokenizer::OptimizedBPETrainer {
+        let base: ahash::AHashMap<String, u32> = TamilTokenizer::new().vocab.into_iter().collect();
+        let mut t = tamil_tokenizer::OptimizedBPETrainer::new(base);
+        t.set_min_frequency(min_frequency);
+        t.initialize_from_corpus(CORPUS)
+            .expect("sample corpus should be readable");
+        t.train(merges);
+        t
+    }
+
+    #[test]
+    fn test_trainer_learns_the_requested_merges() {
+        let base_len = TamilTokenizer::new().vocab.len();
+        let t = trained(50, 1);
+        let merges = t.merges();
+        assert_eq!(merges.len(), 50, "should record exactly 50 merges");
+
+        // The final vocab is larger than the base vocab by more than the merge
+        // count: `convert_to_ids` also mints IDs for corpus clusters that are
+        // not in the base vocab, so an exact delta would be brittle.
+        let final_vocab = t.get_final_vocab();
+        assert!(
+            final_vocab.len() > base_len + 50,
+            "vocab should grow past base + merges"
+        );
+
+        // The real invariant: every recorded merge produced its token.
+        for (a, b) in merges {
+            let merged = format!("{a}{b}");
+            assert!(
+                final_vocab.contains_key(&merged),
+                "merge {a:?}+{b:?} is missing token {merged:?}"
+            );
+        }
+    }
+
+    /// The trainer breaks frequency ties by packed pair key, so the same corpus
+    /// must produce byte-identical merges every run. Reproducible published
+    /// models depend on this.
+    #[test]
+    fn test_trainer_is_deterministic() {
+        assert_eq!(trained(60, 1).merges(), trained(60, 1).merges());
+    }
+
+    #[test]
+    fn test_min_frequency_skips_rare_pairs() {
+        let loose = trained(300, 1);
+        let strict = trained(300, 5);
+        assert!(
+            strict.get_final_vocab().len() < loose.get_final_vocab().len(),
+            "a frequency floor must shrink the vocab"
+        );
+    }
+
+    /// End-to-end: a trained artifact saved and reloaded must encode and decode
+    /// its own corpus byte-exactly. This is the path the CLI and every benchmark
+    /// depend on, and nothing else tested it.
+    #[test]
+    fn test_trained_artifact_round_trips() {
+        let t = trained(200, 1);
+        let path = std::env::temp_dir().join("tamil_tokenizer_trainer_test.json");
+        let path = path.to_str().unwrap();
+        t.save_tokenizer_with_reserved_tokens(path).unwrap();
+
+        let (vocab, merges) =
+            tamil_tokenizer::load_tokenizer(path).expect("trained file should load");
+        assert!(
+            !merges.is_empty(),
+            "merges must survive the save/load round-trip"
+        );
+
+        let enc = FastBPEEncoder::new_with_merges(vocab, &merges).expect("encoder should build");
+        let corpus = std::fs::read_to_string(CORPUS).unwrap();
+
+        let mut checked = 0;
+        for line in corpus.lines().filter(|l| !l.trim().is_empty()).take(200) {
+            let ids = enc.encode_ordinary(line);
+            assert_eq!(enc.decode(&ids), line, "round-trip changed {:?}", line);
+            checked += 1;
+        }
+        assert!(
+            checked > 50,
+            "expected a meaningful sample, got {checked} lines"
+        );
+
+        let _ = std::fs::remove_file(path);
     }
 }

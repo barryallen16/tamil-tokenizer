@@ -464,6 +464,11 @@ impl OptimizedBPETrainer {
         vocab
     }
 
+    /// Learned merges in rank order; position is the rank the encoder uses.
+    pub fn merges(&self) -> &[(String, String)] {
+        &self.merges
+    }
+
     // Add special tokens + reserved tokens to vocab
     pub fn save_tokenizer_with_reserved_tokens(&self, path: &str) -> std::io::Result<()> {
         use std::fs::File;

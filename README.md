@@ -85,14 +85,14 @@ cargo run --release --bin decode -- ./output/tamil_tokenizer.json 224 174 181
 # வ
 ```
 
-`main` accepts an optional vocab path, defaulting to `output/tamil_tokenizer.json`:
-`cargo run --release --bin main -- ./output/tamil_tokenizer.json`
-
 ### 4. Interactive Mode
 
 ```bash
+# Launch interactive REPL (defaults to output/tamil_tokenizer.json)
 cargo run --release --bin main
-# Enter text to encode/decode interactively
+
+# Or specify a custom vocab path:
+cargo run --release --bin main -- ./output/tamil_tokenizer.json
 ```
 
 ### 5. Run Benchmarks
@@ -170,9 +170,11 @@ The encoder supports an o200k-style token layout:
 
 | Range | Tokens |
 |-------|--------|
-| `0` – `base_vocab_size` | Base vocabulary (Tamil clusters, bytes, etc.) |
-| `base` – `base + 8` | Named specials: `<\|startoftext\|>`, `<\|endoftext\|>`, `<\|pad\|>`, `<\|unk\|>`, `<\|mask\|>`, `<\|question\|>`, `<\|answer\|>`, `<\|code\|>` |
-| `base + 9` – `base + 109` | 100 reserved tokens: `<\|reserved_0\|>` … `<\|reserved_99\|>` |
+| `0` – `base - 1` | Base vocabulary (Tamil clusters, bytes, etc.) |
+| `base` – `base + 7` | Named specials: `<\|startoftext\|>`, `<\|endoftext\|>`, `<\|pad\|>`, `<\|unk\|>`, `<\|mask\|>`, `<\|question\|>`, `<\|answer\|>`, `<\|code\|>` |
+| `base + 8` – `base + 107` | 100 reserved tokens: `<\|reserved_0\|>` … `<\|reserved_99\|>` |
+
+*(where `base` is `base_vocab_size`)*
 
 ```rust
 // Check if a token ID is special
@@ -216,15 +218,13 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 
 | Metric | Value |
 |--------|------:|
-| Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved) |
-
-The 907 base is larger than the 524-token untrained base because the trainer
-also mints IDs for Tamil clusters it finds in the corpus that are not already in
-the base vocab; that count depends on the corpus.
+| Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved)* |
 | Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
 | Encode throughput (10K wiki lines) | ~23 MB/s (1K vocab), ~15 MB/s (30K wiki vocab) |
+
+*\*The 907 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
 
 Throughput measured with `bench_speed` over 10,000 wiki lines x 3 repeats
 (3.1 MB per pass); run-to-run variance is ~1%. The 30K vocab is slower per byte
@@ -296,7 +296,7 @@ a stand-in are kept out of the matcher, so real text containing those characters
 
 Special tokens keep the IDs stored in the file: a trained vocab already contains
 them, and the encoder reuses those IDs instead of remapping them. The exact
-where they start depends on the corpus, because the trainer mints IDs for
+ID range where they start depends on the corpus, because the trainer mints IDs for
 clusters it discovers while reading.
 
 ### The published 32K model
@@ -320,7 +320,7 @@ its own measurements only.
 | `serde` / `serde_json` | Vocab serialization |
 | `rustc_hash` | Fast hash maps (FxHashMap) |
 | `ahash` | Hash maps for trainer internals |
-| `aho_corasick` | Multi-pattern matching encoder |
+| `aho-corasick` | Multi-pattern matching encoder |
 
 ## Hugging Face Integration
 

@@ -70,26 +70,50 @@ impl FastBPEEncoder {
         config: SpecialTokenConfig,
         merges: &[(String, String)],
     ) -> Result<Self> {
-        let base_vocab_size = vocab.values().max().copied().unwrap_or(0) + 1;
+        let max_id = vocab.values().max().copied();
+        let max_possible = vocab
+            .len()
+            .saturating_add(config.core_tokens.len())
+            .saturating_add(config.custom_tokens.len())
+            .saturating_add(100);
+
+        if let Some(max) = max_id {
+            if max as usize >= max_possible {
+                return Err(TokenizerError::InvalidData(format!(
+                    "token id {} is out of range for vocab of size {}: ids must be contiguous from 0",
+                    max,
+                    vocab.len()
+                )));
+            }
+        }
+
+        let base_vocab_size = match max_id {
+            Some(max) => max.checked_add(1).ok_or_else(|| {
+                TokenizerError::InvalidData("token ID causes overflow".to_string())
+            })?,
+            None => 0,
+        };
 
         // Reuse IDs already in the file so a trained tokenizer keeps its IDs.
         // Only genuinely missing tokens are appended after the current max.
         let mut next_id = base_vocab_size;
-        let mut claim = |vocab: &mut FxHashMap<String, u32>, token: String| -> u32 {
+        let mut claim = |vocab: &mut FxHashMap<String, u32>, token: String| -> Result<u32> {
             if let Some(&id) = vocab.get(&token) {
-                return id;
+                return Ok(id);
             }
             let id = next_id;
-            next_id += 1;
+            next_id = next_id.checked_add(1).ok_or_else(|| {
+                TokenizerError::InvalidData("vocab size exceeds u32 limit".to_string())
+            })?;
             vocab.insert(token, id);
-            id
+            Ok(id)
         };
 
         let mut special_tokens = FxHashMap::default();
         let mut special_token_ids = Vec::new();
 
         for token in config.core_tokens.into_iter().chain(config.custom_tokens) {
-            let id = claim(&mut vocab, token.clone());
+            let id = claim(&mut vocab, token.clone())?;
             special_tokens.insert(token, id);
             special_token_ids.push(id);
         }
@@ -99,7 +123,7 @@ impl FastBPEEncoder {
             .iter()
             .copied()
             .max()
-            .map(|m| m + 1)
+            .and_then(|m| m.checked_add(1))
             .unwrap_or(next_id);
 
         let reserved_count = 100usize;
@@ -109,7 +133,9 @@ impl FastBPEEncoder {
             .count();
         for _ in 0..reserved_count.saturating_sub(existing_reserved) {
             let id = next_id;
-            next_id += 1;
+            next_id = next_id.checked_add(1).ok_or_else(|| {
+                TokenizerError::InvalidData("vocab size exceeds u32 limit".to_string())
+            })?;
             let reserved_token = format!("<|reserved_{}|>", id);
             vocab.insert(reserved_token, id);
         }
@@ -123,7 +149,7 @@ impl FastBPEEncoder {
             .iter()
             .copied()
             .max()
-            .map(|m| m + 1)
+            .and_then(|m| m.checked_add(1))
             .unwrap_or(next_id)
             .max(named_tokens_end);
 

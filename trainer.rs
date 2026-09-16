@@ -474,6 +474,14 @@ impl OptimizedBPETrainer {
         use std::fs::File;
         use std::io::Write;
 
+        // A fresh clone has no output/ directory, so don't make the caller
+        // create one before saving.
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
         let mut vocab_map: HashMap<String, u32> = HashMap::new();
         for (idx, token) in self.id_to_token.iter().enumerate() {
             vocab_map.insert(token.clone(), idx as u32);

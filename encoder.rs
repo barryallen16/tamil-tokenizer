@@ -239,7 +239,16 @@ impl FastBPEEncoder {
     }
 
     /// Standard BPE: repeatedly merge the adjacent pair with the lowest rank
-    /// (earliest learned). Each merge shortens the sequence, so this ends.
+    /// (earliest learned); ties go to the leftmost pair. Each merge shortens the
+    /// sequence, so this ends.
+    ///
+    /// ponytail: rescanning every adjacent pair after every merge is O(n^2) in
+    /// the chunk length. A linked list plus a min-heap of candidate pairs was
+    /// written and measured: byte-identical output on 10k wiki lines, but
+    /// within noise on throughput, because the pretokenizer already splits text
+    /// into chunks short enough that the scan is cheap. Keep the rescan unless
+    /// chunk length grows; the heap version is the upgrade path, not a win at
+    /// current chunk sizes.
     fn apply_merges(&self, chunk: &str, symbols: &mut Vec<(usize, usize)>) {
         if self.merge_ranks.is_empty() {
             return;

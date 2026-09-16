@@ -7,7 +7,9 @@ import json, os, sys, subprocess
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OURS_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
-RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode.exe")
+RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode" + (".exe" if os.name == "nt" else ""))
+if not os.path.exists(RUST_BIN):
+    sys.exit(f"Missing {RUST_BIN}\nRun: cargo build --release")
 
 TAMIL = [
     "வணக்கம்! இது தமிழ் மொழியில் எழுதப்பட்ட ஒரு சோதனை வாக்கியம். இது மிகவும் நீண்ட வாக்கியம்.",

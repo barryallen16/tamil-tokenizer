@@ -11,7 +11,7 @@ Usage:
 
 tiktoken / sentencepiece / tokenizers are optional: missing ones are skipped.
 HF and SentencePiece models are trained fresh on the given corpus so vocab
-sizes stay roughly matched (1,000 and 500 here vs our 1,015).
+sizes stay roughly matched (1,000 and 500 here).
 """
 import json
 import os
@@ -22,7 +22,9 @@ import tempfile
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OURS_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
 CORPUS = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else os.path.join(BASE, "data", "tamil_corpus.txt")
-RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode.exe")
+RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode" + (".exe" if os.name == "nt" else ""))
+if not os.path.exists(RUST_BIN):
+    sys.exit(f"Missing {RUST_BIN}\nRun: cargo build --release")
 
 ENGLISH = ["The quick brown fox jumps over the lazy dog near the riverbank on a sunny afternoon."] * 10 + [
     "Artificial intelligence and machine learning are transforming how we process natural language."] * 10
@@ -40,12 +42,22 @@ def encode_ours(text):
     return r.stdout.decode("utf-8").split()
 
 
+def ours_label():
+    # Read the vocab size from the model rather than hardcoding it, so the
+    # column stays honest when a different tokenizer.json is passed in.
+    with open(OURS_JSON, encoding="utf-8") as f:
+        data = json.load(f)
+    vocab = data.get("vocab", data)
+    return f"ours-{len(vocab):,}"
+
+
 def main():
     inputs = {"tamil": load_corpus(CORPUS), "english": ENGLISH, "code": CODE}
     results = {name: {} for name in inputs}
+    label = ours_label()
 
     for name, texts in inputs.items():
-        results[name]["ours-1015"] = [len(encode_ours(t)) for t in texts]
+        results[name][label] = [len(encode_ours(t)) for t in texts]
 
     try:
         import tiktoken

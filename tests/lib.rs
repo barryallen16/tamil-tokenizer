@@ -14,8 +14,8 @@ mod tests {
     #[test]
     fn test_vocab_size_range() {
         let tok = TamilTokenizer::new();
-        assert!(tok.vocab_size() > 500);
-        assert!(tok.vocab_size() < 600);
+        assert!(tok.vocab_size() > 550);
+        assert!(tok.vocab_size() < 700);
     }
 
     /// Losslessness rests on this: every one of the 256 bytes must have a
@@ -301,6 +301,29 @@ mod tests {
         let enc = make_encoder();
         assert_eq!(enc.encode_ordinary("கா").len(), 1);
         assert_eq!(enc.encode_ordinary("ஃ").len(), 1);
+        // Grantha consonants and vowel clusters
+        assert_eq!(enc.encode_ordinary("ஜா").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஜி").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஷா").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஸு").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஹோ").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஶ்").len(), 1);
+        // Ligatures
+        assert_eq!(enc.encode_ordinary("ஸ்ரீ").len(), 1);
+        assert_eq!(enc.encode_ordinary("ஶ்ரீ").len(), 1);
+        assert_eq!(enc.encode_ordinary("க்ஷ").len(), 1);
+        assert_eq!(enc.encode_ordinary("க்ஷா").len(), 1);
+    }
+
+    #[test]
+    fn test_grantha_words_roundtrip() {
+        let enc = make_encoder();
+        for word in ["ரோஜா", "ஹலோ", "விஷயம்", "ஸ்டேஷன்", "பேஸ்புக்", "ஸ்ரீராம்", "க்ஷேமம்"]
+        {
+            let ids = enc.encode_ordinary(word);
+            let decoded = enc.decode(&ids);
+            assert_eq!(decoded, word);
+        }
     }
 
     #[test]

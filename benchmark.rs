@@ -127,8 +127,8 @@ fn main() {
         format_duration(total_time_nanos / sample_size as u128)
     );
 
-    // Batch processing test
-    println!("\n=== Batch Processing (all corpus) ===");
+    // Batch processing test (sequential)
+    println!("\n=== Sequential Batch Processing (all corpus) ===");
     let start = Instant::now();
     let _results: Vec<Vec<u32>> = corpus_texts.iter().map(|t| encoder.encode(t)).collect();
     let batch_time = start.elapsed();
@@ -138,5 +138,26 @@ fn main() {
     println!(
         "Per document: {}",
         format_duration(batch_time.as_nanos() / corpus_texts.len() as u128)
+    );
+
+    // Batch processing test (parallel with Rayon)
+    println!("\n=== Parallel Batch Processing (Rayon) ===");
+    // Warmup Rayon thread pool
+    let _ = encoder.encode_batch(&corpus_texts);
+
+    let start = Instant::now();
+    let _results: Vec<Vec<u32>> = encoder.encode_batch(&corpus_texts);
+    let par_batch_time = start.elapsed();
+
+    println!("Batch size: {} documents", corpus_texts.len());
+    println!("Total time: {}", format_duration(par_batch_time.as_nanos()));
+    println!(
+        "Per document: {}",
+        format_duration(par_batch_time.as_nanos() / corpus_texts.len() as u128)
+    );
+    let total_corpus_bytes: usize = corpus_texts.iter().map(|s| s.len()).sum();
+    println!(
+        "Parallel throughput: {}",
+        format_throughput(total_corpus_bytes, par_batch_time.as_nanos())
     );
 }

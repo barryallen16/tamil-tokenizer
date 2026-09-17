@@ -232,21 +232,14 @@ impl OptimizedBPETrainer {
         while i < chars.len() {
             let mut matched = false;
 
-            if i + 2 < chars.len() {
-                let cluster: String = chars[i..i + 3].iter().collect();
-                if self.tamil_clusters.contains(&cluster) {
-                    tokens.push(cluster);
-                    i += 3;
-                    matched = true;
-                }
-            }
-
-            if !matched && i + 1 < chars.len() {
-                let cluster: String = chars[i..i + 2].iter().collect();
-                if self.tamil_clusters.contains(&cluster) {
-                    tokens.push(cluster);
-                    i += 2;
-                    matched = true;
+            for len in (2..=4).rev() {
+                if !matched && i + len <= chars.len() {
+                    let cluster: String = chars[i..i + len].iter().collect();
+                    if self.tamil_clusters.contains(&cluster) {
+                        tokens.push(cluster);
+                        i += len;
+                        matched = true;
+                    }
                 }
             }
 

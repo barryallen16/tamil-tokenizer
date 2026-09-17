@@ -73,10 +73,16 @@ impl TamilTokenizer {
             }
         }
 
-        // Step 3: Add 18 consonants (in codepoint order)
+        // Step 3: Add 18 traditional consonants + 5 Grantha consonants
         let consonant_codepoints = [
             0x0B95, 0x0B99, 0x0B9A, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, 0x0BA8, 0x0BAA, 0x0BAE, 0x0BAF,
             0x0BB0, 0x0BB2, 0x0BB5, 0x0BB4, 0x0BB3, 0x0BB1, 0x0BA9,
+            // Grantha consonants
+            0x0B9C, // ஜ (JA)
+            0x0BB6, // ஶ (SHA)
+            0x0BB7, // ஷ (SSA)
+            0x0BB8, // ஸ (SA)
+            0x0BB9, // ஹ (HA)
         ];
         for &cp in &consonant_codepoints {
             if let Some(ch) = std::char::from_u32(cp) {
@@ -84,13 +90,13 @@ impl TamilTokenizer {
             }
         }
 
-        // Step 6: Add 12 vowel signs (in codepoint order)
+        // Step 4: Add 12 vowel signs (in codepoint order)
         let vowel_sign_codepoints = [
             0x0BBE, 0x0BBF, 0x0BC0, 0x0BC1, 0x0BC2, 0x0BC6, 0x0BC7, 0x0BC8, 0x0BCA, 0x0BCB, 0x0BCC,
             0x0BCD,
         ];
 
-        // Step 4: Generate 18 × 12 = 216 consonant+vowel combinations (in codepoint order)
+        // Step 5: Generate 23 × 12 = 276 consonant+vowel combinations (in codepoint order)
         for &consonant_cp in &consonant_codepoints {
             for &sign_cp in &vowel_sign_codepoints {
                 if let (Some(c), Some(sign)) = (
@@ -102,19 +108,45 @@ impl TamilTokenizer {
             }
         }
 
-        // Step 5: Add 1 special character ஃ (0x0B83)
-        if let Some(ch) = std::char::from_u32(0x0B83) {
-            vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
+        // Step 6: Add special Tamil characters: ஃ (0x0B83), ஂ (0x0B82), ௐ (0x0BD0), ௗ (0x0BD7)
+        for &cp in &[0x0B83, 0x0B82, 0x0BD0, 0x0BD7] {
+            if let Some(ch) = std::char::from_u32(cp) {
+                vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
+            }
         }
 
-        // Step 6: Add 10 Tamil digits (in codepoint order)
+        // Step 7: Add common compound ligatures (க்ஷ, ஸ்ரீ) and their variants
+        let ligatures = [
+            // Ksha and its vowel signs
+            "க்ஷ",
+            "க்ஷா",
+            "க்ஷி",
+            "க்ஷீ",
+            "க்ஷு",
+            "க்ஷூ",
+            "க்ஷெ",
+            "க்ஷே",
+            "க்ஷை",
+            "க்ஷொ",
+            "க்ஷோ",
+            "க்ஷௌ",
+            "க்ஷ்",
+            // Sri variants
+            "ஸ்ரீ",
+            "ஶ்ரீ",
+        ];
+        for &lig in &ligatures {
+            vocab_tuples.push((lig.to_string(), vocab_tuples.len() as u32));
+        }
+
+        // Step 8: Add 10 Tamil digits (in codepoint order)
         for cp in 0x0BE6..=0x0BEF {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
             }
         }
 
-        // Step 7: Add 11 extra Tamil chars (in codepoint order)
+        // Step 9: Add 11 extra Tamil chars (in codepoint order)
         for cp in 0x0BF0..=0x0BFA {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
@@ -232,8 +264,9 @@ impl TamilTokenizer {
     pub fn print_stats(&self) {
         println!("Total vocabulary size: {}", self.vocab.len());
         println!("Byte-level tokens (all 256 bytes, GPT-2 style): 256");
-        println!("Tamil consonant+vowel clusters: 216");
-        println!("Standalone Tamil characters: 31");
+        println!("Tamil consonant+vowel clusters: 276");
+        println!("Standalone Tamil characters: 39");
+        println!("Common compound ligatures: 15");
         println!("Tamil digits: 10");
         println!("Extra Tamil characters: 11");
 

@@ -29,11 +29,24 @@ impl Default for SpecialTokenConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Symbol {
+    start: usize,
+    end: usize,
+    id: Option<u32>,
+}
+
+#[inline]
+fn pack_pair(a: u32, b: u32) -> u64 {
+    ((a as u64) << 32) | (b as u64)
+}
+
 pub struct FastBPEEncoder {
     token_to_id: Arc<FxHashMap<String, u32>>,
     id_to_token: Arc<Vec<String>>,
     base_automaton: Arc<AhoCorasick>,
-    merge_ranks: FxHashMap<String, FxHashMap<String, u32>>,
+    pattern_to_id: Arc<Vec<u32>>,
+    pair_to_merge: FxHashMap<u64, (u32, u32)>,
     pretokenizer: TamilPretokenizer,
     byte_encoder: FxHashMap<u8, char>,
     byte_decoder: FxHashMap<char, u8>,
@@ -186,14 +199,17 @@ impl FastBPEEncoder {
 
         // Merge results are excluded from base matching so rank order decides.
         // Rank = position in the trainer's merge list (0 = learned first).
-        let mut merge_ranks: FxHashMap<String, FxHashMap<String, u32>> = FxHashMap::default();
+        let mut pair_to_merge: FxHashMap<u64, (u32, u32)> = FxHashMap::default();
         let mut merged_strings = std::collections::HashSet::new();
         for (rank, (a, b)) in merges.iter().enumerate() {
-            merge_ranks
-                .entry(a.clone())
-                .or_default()
-                .insert(b.clone(), rank as u32);
-            merged_strings.insert(format!("{}{}", a, b));
+            let merged = format!("{}{}", a, b);
+            if let (Some(&id_a), Some(&id_b), Some(&new_id)) =
+                (vocab.get(a), vocab.get(b), vocab.get(&merged))
+            {
+                let key = pack_pair(id_a, id_b);
+                pair_to_merge.insert(key, (rank as u32, new_id));
+            }
+            merged_strings.insert(merged);
         }
 
         let base_patterns: Vec<&str> = vocab
@@ -201,6 +217,7 @@ impl FastBPEEncoder {
             .filter(|k| !k.chars().any(is_stand_in) && !merged_strings.contains(k.as_str()))
             .map(|s| s.as_str())
             .collect();
+        let pattern_to_id: Vec<u32> = base_patterns.iter().map(|&p| vocab[p]).collect();
         let base_automaton = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
             .start_kind(StartKind::Anchored)
@@ -216,7 +233,8 @@ impl FastBPEEncoder {
             token_to_id: Arc::new(vocab),
             id_to_token: Arc::new(id_to_token),
             base_automaton: Arc::new(base_automaton),
-            merge_ranks,
+            pattern_to_id: Arc::new(pattern_to_id),
+            pair_to_merge,
             pretokenizer: TamilPretokenizer::new(),
             byte_encoder: byte_encoder.into_iter().collect(),
             byte_decoder: byte_decoder.into_iter().collect(),
@@ -231,11 +249,15 @@ impl FastBPEEncoder {
         let mut token_ids = Vec::with_capacity(text.len() / 3);
         let chunks = self.pretokenizer.pretokenize(text);
 
-        for chunk in &chunks {
+        for chunk in chunks {
             let mut symbols = self.segment(chunk);
-            self.apply_merges(chunk, &mut symbols);
-            for (a, b) in &symbols {
-                self.push_text(&mut token_ids, &chunk[*a..*b]);
+            self.apply_merges(&mut symbols);
+            for sym in &symbols {
+                if let Some(id) = sym.id {
+                    token_ids.push(id);
+                } else {
+                    self.push_text(&mut token_ids, &chunk[sym.start..sym.end]);
+                }
             }
         }
 
@@ -245,18 +267,35 @@ impl FastBPEEncoder {
     /// Longest-match over base tokens only (merge results excluded so rank
     /// order decides). Unmatched positions become single-char spans.
     /// Spans are byte ranges, so segmentation allocates nothing.
-    fn segment(&self, chunk: &str) -> Vec<(usize, usize)> {
+    fn segment(&self, chunk: &str) -> Vec<Symbol> {
         let mut symbols = Vec::new();
         let mut pos = 0;
 
         while pos < chunk.len() {
             let input = Input::new(&chunk[pos..]).anchored(Anchored::Yes);
             if let Some(mat) = self.base_automaton.find(input) {
-                symbols.push((pos, pos + mat.end()));
+                let id = self.pattern_to_id[mat.pattern().as_usize()];
+                symbols.push(Symbol {
+                    start: pos,
+                    end: pos + mat.end(),
+                    id: Some(id),
+                });
                 pos += mat.end();
             } else {
-                let len = chunk[pos..].chars().next().unwrap().len_utf8();
-                symbols.push((pos, pos + len));
+                let ch = chunk[pos..].chars().next().unwrap();
+                let len = ch.len_utf8();
+                let mut buf = [0u8; 4];
+                let single = ch.encode_utf8(&mut buf);
+                let id = if !self.is_byte_stand_in(ch) {
+                    self.token_to_id.get(single).copied()
+                } else {
+                    None
+                };
+                symbols.push(Symbol {
+                    start: pos,
+                    end: pos + len,
+                    id,
+                });
                 pos += len;
             }
         }
@@ -264,36 +303,30 @@ impl FastBPEEncoder {
         symbols
     }
 
-    /// Standard BPE: repeatedly merge the adjacent pair with the lowest rank
-    /// (earliest learned); ties go to the leftmost pair. Each merge shortens the
-    /// sequence, so this ends.
-    ///
-    /// ponytail: rescanning every adjacent pair after every merge is O(n^2) in
-    /// the chunk length. A linked list plus a min-heap of candidate pairs was
-    /// written and measured: byte-identical output on 10k wiki lines, but
-    /// within noise on throughput, because the pretokenizer already splits text
-    /// into chunks short enough that the scan is cheap. Keep the rescan unless
-    /// chunk length grows; the heap version is the upgrade path, not a win at
-    /// current chunk sizes.
-    fn apply_merges(&self, chunk: &str, symbols: &mut Vec<(usize, usize)>) {
-        if self.merge_ranks.is_empty() {
+    /// Standard BPE using fast packed integer lookups in pair_to_merge: repeatedly
+    /// merge the adjacent pair with the lowest rank (earliest learned); ties go
+    /// to the leftmost pair.
+    fn apply_merges(&self, symbols: &mut Vec<Symbol>) {
+        if self.pair_to_merge.is_empty() || symbols.len() < 2 {
             return;
         }
         while symbols.len() >= 2 {
-            let mut best: Option<(usize, u32)> = None;
+            let mut best: Option<(usize, u32, u32)> = None;
             for i in 0..symbols.len() - 1 {
-                let a = &chunk[symbols[i].0..symbols[i].1];
-                let b = &chunk[symbols[i + 1].0..symbols[i + 1].1];
-                if let Some(&rank) = self.merge_ranks.get(a).and_then(|m| m.get(b)) {
-                    if best.is_none_or(|(_, r)| rank < r) {
-                        best = Some((i, rank));
+                if let (Some(id_a), Some(id_b)) = (symbols[i].id, symbols[i + 1].id) {
+                    let key = pack_pair(id_a, id_b);
+                    if let Some(&(rank, new_id)) = self.pair_to_merge.get(&key) {
+                        if best.is_none_or(|(_, r, _)| rank < r) {
+                            best = Some((i, rank, new_id));
+                        }
                     }
                 }
             }
             match best {
-                Some((i, _)) => {
-                    let (_, end) = symbols.remove(i + 1);
-                    symbols[i].1 = end;
+                Some((i, _, new_id)) => {
+                    symbols[i].end = symbols[i + 1].end;
+                    symbols[i].id = Some(new_id);
+                    symbols.remove(i + 1);
                 }
                 None => break,
             }
@@ -344,6 +377,21 @@ impl FastBPEEncoder {
     /// Returns ONLY text tokens - recognizes special tokens if in vocab
     pub fn encode_ordinary(&self, text: &str) -> Vec<u32> {
         self.encode_inner(text)
+    }
+
+    /// Parallel batch encoding with BOS/EOS using rayon
+    pub fn encode_batch<T: AsRef<str> + Sync>(&self, texts: &[T]) -> Vec<Vec<u32>> {
+        use rayon::prelude::*;
+        texts.par_iter().map(|t| self.encode(t.as_ref())).collect()
+    }
+
+    /// Parallel batch encoding without special tokens using rayon
+    pub fn encode_ordinary_batch<T: AsRef<str> + Sync>(&self, texts: &[T]) -> Vec<Vec<u32>> {
+        use rayon::prelude::*;
+        texts
+            .par_iter()
+            .map(|t| self.encode_ordinary(t.as_ref()))
+            .collect()
     }
 
     pub fn decode(&self, token_ids: &[u32]) -> String {

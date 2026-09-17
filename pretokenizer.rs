@@ -35,11 +35,8 @@ impl TamilPretokenizer {
         Self { pattern }
     }
 
-    pub fn pretokenize(&self, text: &str) -> Vec<String> {
-        self.pattern
-            .find_iter(text)
-            .map(|m| m.as_str().to_string())
-            .collect()
+    pub fn pretokenize<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        self.pattern.find_iter(text).map(|m| m.as_str()).collect()
     }
 
     pub fn pretokenize_file(&self, input_path: &str, output_path: &str) -> io::Result<()> {

@@ -350,6 +350,52 @@ mod tests {
     /// Rank order decides, not longest match: ("a","b") is the only merge, so
     /// "ab" leaves the base set and "abc" segments as a|bc with nothing left
     /// to merge. Longest-match would have emitted ab|c instead.
+    /// The byte table must stay identical to GPT-2's, byte for byte. Hugging
+    /// Face's `ByteLevel` pretokenizer and decoder hardcode it, so any drift
+    /// here shows up only after export as silently wrong IDs in Python.
+    #[test]
+    fn test_byte_table_matches_gpt2() {
+        let (encoder, decoder) = TamilTokenizer::create_byte_mappings();
+        assert_eq!(encoder.len(), 256);
+        assert_eq!(decoder.len(), 256);
+        assert_eq!(decoder.len(), encoder.len(), "table must be a bijection");
+
+        // GPT-2's printable sets; everything else goes to U+0100 upward in
+        // ascending byte order.
+        let printable = |b: u8| (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b);
+
+        let mut next = 0u32;
+        for b in 0..=255u8 {
+            let expected = if printable(b) {
+                b as char
+            } else {
+                let c = std::char::from_u32(256 + next).unwrap();
+                next += 1;
+                c
+            };
+            assert_eq!(encoder[&b], expected, "byte {b} maps wrong");
+            assert_eq!(decoder[&expected], b, "byte {b} does not round-trip");
+        }
+
+        // Spot checks against known GPT-2 values.
+        assert_eq!(encoder[&b' '], '\u{0120}');
+        assert_eq!(encoder[&b'\n'], '\u{010A}');
+        assert_eq!(encoder[&b'A'], 'A');
+        assert_eq!(encoder[&0xC3], '\u{00C3}');
+    }
+
+    /// Latin-1 text must not be captured by a single-byte token. Under GPT-2's
+    /// table `Ã` is both the byte token for 0xC3 and a real character, so a
+    /// stand-in test that only looked at the codepoint would match raw text to
+    /// a one-byte token and decode it to a different byte.
+    #[test]
+    fn test_latin1_text_is_not_a_byte_token() {
+        let enc = make_encoder();
+        for text in ["Ã©", "Ñ€", "üÿ", "Ð¿Ñ€Ð¸Ð²ÐµÑ‚"] {
+            assert_roundtrip(text);
+        }
+    }
+
     #[test]
     fn test_merge_rank_beats_longest_match() {
         use tamil_tokenizer::FastBPEEncoder;

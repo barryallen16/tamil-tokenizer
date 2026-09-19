@@ -195,7 +195,14 @@ impl FastBPEEncoder {
         // so tokens containing a stand-in must never match raw input: they are
         // reachable only through the byte fallback in `encode_inner`.
         let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
-        let is_stand_in = |c: char| c as u32 >= 256 && byte_decoder.contains_key(&c);
+        // A stand-in char is any byte token that raw text must never match
+        // directly. Under GPT-2's table bytes 161..=255 map to ordinary Latin-1
+        // chars, so `Ã` is both a byte token and real text; only printable ASCII
+        // is safe to match in the automaton, because for those the byte token
+        // and the raw char really are the same token.
+        let is_stand_in = |c: char| {
+            byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32))
+        };
 
         // Merge results are excluded from base matching so rank order decides.
         // Rank = position in the trainer's merge list (0 = learned first).
@@ -334,7 +341,7 @@ impl FastBPEEncoder {
     }
 
     fn is_byte_stand_in(&self, c: char) -> bool {
-        c as u32 >= 256 && self.byte_decoder.contains_key(&c)
+        self.byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32))
     }
 
     /// Resolve a span to token IDs. Anything without an ID falls back to one

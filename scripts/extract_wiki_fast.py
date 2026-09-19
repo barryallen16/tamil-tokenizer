@@ -122,10 +122,36 @@ def extract(xml_path, output_path, max_articles=0, min_chars=30):
     return articles, lines
 
 
-if __name__ == '__main__':
-    xml_path = sys.argv[1] if len(sys.argv) > 1 else 'data/tawiki-latest-pages-articles.xml.bz2'
-    output_path = sys.argv[2] if len(sys.argv) > 2 else 'data/tamil_wiki_corpus.txt'
-    max_articles = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+def clean_corpus(input_path, output_path):
+    """Filter an already-extracted corpus down to Tamil prose.
 
-    print(f"Extracting from {xml_path} (max_articles={max_articles or 'all'})...")
-    extract(xml_path, output_path, max_articles)
+    Same `is_tamil_prose` gate as `extract`, for corpora extracted before the
+    cleaner existed. Dropped lines are markup residue, not prose.
+    """
+    kept = seen = 0
+    with open(input_path, encoding='utf-8') as src, \
+         open(output_path, 'w', encoding='utf-8') as out:
+        for line in src:
+            line = clean_wikitext(line.strip())
+            if not line:
+                continue
+            seen += 1
+            if is_tamil_prose(line):
+                out.write(line + '\n')
+                kept += 1
+    print(f"Kept {kept} of {seen} lines -> {output_path}")
+    return kept, seen
+
+
+if __name__ == '__main__':
+    if sys.argv[1:2] == ['--clean']:
+        src = sys.argv[2] if len(sys.argv) > 2 else 'data/tamil_wiki_corpus.txt'
+        dst = sys.argv[3] if len(sys.argv) > 3 else 'data/tamil_wiki_clean.txt'
+        clean_corpus(src, dst)
+    else:
+        xml_path = sys.argv[1] if len(sys.argv) > 1 else 'data/tawiki-latest-pages-articles.xml.bz2'
+        output_path = sys.argv[2] if len(sys.argv) > 2 else 'data/tamil_wiki_corpus.txt'
+        max_articles = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+
+        print(f"Extracting from {xml_path} (max_articles={max_articles or 'all'})...")
+        extract(xml_path, output_path, max_articles)

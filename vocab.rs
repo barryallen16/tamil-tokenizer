@@ -163,38 +163,32 @@ impl TamilTokenizer {
         }
     }
 
-    /// Create GPT-2 style byte-to-unicode mapping
-    /// Maps control chars and space to printable Unicode characters for visibility
+    /// GPT-2's byte-to-unicode table. Bytes GPT-2 treats as printable keep their own
+    /// char; the rest go to U+0100 upward in ascending byte order.
+    ///
+    /// Must stay identical to upstream. Hugging Face's `ByteLevel` pretokenizer
+    /// and decoder hardcode this table, so exported models only round-trip
+    /// through Python `tokenizers` when these agree byte for byte.
     pub fn create_byte_mappings() -> (HashMap<u8, char>, HashMap<char, u8>) {
-        let mut byte_encoder = HashMap::new();
-        let mut byte_decoder = HashMap::new();
+        let printable =
+            |b: u8| (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b);
 
-        // Printable ASCII chars map to themselves
-        for b in 33..=126u8 {
-            let ch = b as char;
-            byte_encoder.insert(b, ch);
-            byte_decoder.insert(ch, b);
-        }
-
-        // Control chars and space map to high Unicode range (U+0100+).
-        // The loop above only touched 33..=126, so no key here can already exist.
+        let mut encoder = HashMap::new();
+        let mut decoder = HashMap::new();
         let mut n = 0u32;
-        for b in 0..=32u8 {
-            let mapped_char = std::char::from_u32(256 + n).unwrap();
-            byte_encoder.insert(b, mapped_char);
-            byte_decoder.insert(mapped_char, b);
-            n += 1;
+        for b in 0..=255u8 {
+            let ch = if printable(b) {
+                b as char
+            } else {
+                let mapped = std::char::from_u32(256 + n).expect("256 + 190 fits in u32");
+                n += 1;
+                mapped
+            };
+            encoder.insert(b, ch);
+            decoder.insert(ch, b);
         }
 
-        // Map remaining bytes 127-255 to high Unicode
-        for b in 127..=255u8 {
-            let mapped_char = std::char::from_u32(256 + n).unwrap();
-            byte_encoder.insert(b, mapped_char);
-            byte_decoder.insert(mapped_char, b);
-            n += 1;
-        }
-
-        (byte_encoder, byte_decoder)
+        (encoder, decoder)
     }
 
     /// Decode a token back to its original byte representation

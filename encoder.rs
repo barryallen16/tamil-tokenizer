@@ -255,8 +255,13 @@ impl FastBPEEncoder {
         let mut token_ids = Vec::with_capacity(text.len() / 3);
         let chunks = self.pretokenizer.pretokenize(text);
 
+        // The pretokenizer averages ~19 bytes per chunk, so a fresh Vec per
+        // chunk is one allocation per handful of bytes. Reuse one scratch
+        // buffer across the whole text instead.
+        let mut symbols = Vec::with_capacity(64);
         for chunk in chunks {
-            let mut symbols = self.segment(chunk);
+            symbols.clear();
+            self.segment_into(chunk, &mut symbols);
             self.apply_merges(&mut symbols);
             for sym in &symbols {
                 if let Some(id) = sym.id {
@@ -273,8 +278,8 @@ impl FastBPEEncoder {
     /// Longest-match over base tokens only (merge results excluded so rank
     /// order decides). Unmatched positions become single-char spans.
     /// Spans are byte ranges, so segmentation allocates nothing.
-    fn segment(&self, chunk: &str) -> Vec<Symbol> {
-        let mut symbols = Vec::new();
+    fn segment_into(&self, chunk: &str, symbols: &mut Vec<Symbol>) {
+        symbols.clear();
         let mut pos = 0;
 
         while pos < chunk.len() {
@@ -305,8 +310,6 @@ impl FastBPEEncoder {
                 pos += len;
             }
         }
-
-        symbols
     }
 
     /// Standard BPE using fast packed integer lookups in pair_to_merge: repeatedly

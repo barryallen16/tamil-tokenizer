@@ -30,6 +30,10 @@ name = "benchmark"
 path = "benchmark.rs"
 
 [[bin]]
+name = "bench"
+path = "bench.rs"
+
+[[bin]]
 name = "encode_lines"
 path = "encode_lines.rs"
 
@@ -61,3 +65,7 @@ aho-corasick = "1"
 [profile.release]
 opt-level = 3
 lto = true
+
+[[bin]]
+name = "profile_encode"
+path = "profile_encode.rs"

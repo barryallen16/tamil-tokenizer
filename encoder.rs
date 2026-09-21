@@ -200,9 +200,8 @@ impl FastBPEEncoder {
         // chars, so `Ã` is both a byte token and real text; only printable ASCII
         // is safe to match in the automaton, because for those the byte token
         // and the raw char really are the same token.
-        let is_stand_in = |c: char| {
-            byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32))
-        };
+        let is_stand_in =
+            |c: char| byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32));
 
         // Merge results are excluded from base matching so rank order decides.
         // Rank = position in the trainer's merge list (0 = learned first).

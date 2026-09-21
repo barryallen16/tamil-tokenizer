@@ -362,7 +362,8 @@ mod tests {
 
         // GPT-2's printable sets; everything else goes to U+0100 upward in
         // ascending byte order.
-        let printable = |b: u8| (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b);
+        let printable =
+            |b: u8| (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b);
 
         let mut next = 0u32;
         for b in 0..=255u8 {
@@ -390,7 +391,6 @@ mod tests {
     /// a one-byte token and decode it to a different byte.
     #[test]
     fn test_latin1_text_is_not_a_byte_token() {
-        let enc = make_encoder();
         for text in ["Ã©", "Ñ€", "üÿ", "Ð¿Ñ€Ð¸Ð²ÐµÑ‚"] {
             assert_roundtrip(text);
         }

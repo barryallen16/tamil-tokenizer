@@ -13,7 +13,10 @@ use tamil_tokenizer::TokenizerResult as Result;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <tokenizer.json> <out_dir> [model_max_length]", args[0]);
+        eprintln!(
+            "Usage: {} <tokenizer.json> <out_dir> [model_max_length]",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -124,7 +127,10 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
     // schema rejects the field, so writing it there makes the file unloadable.
     let mut config = Map::new();
     config.insert("tokenizer_class".into(), json!("PreTrainedTokenizerFast"));
-    config.insert("model_max_length".into(), json!(model_max_length.unwrap_or(512)));
+    config.insert(
+        "model_max_length".into(),
+        json!(model_max_length.unwrap_or(512)),
+    );
     config.insert("unk_token".into(), json!("<|unk|>"));
     config.insert("bos_token".into(), json!("<|startoftext|>"));
     config.insert("eos_token".into(), json!(""));
@@ -133,7 +139,12 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
         &serde_json::to_string_pretty(&Value::Object(config))?,
     )?;
 
-    println!("Exported {} vocab, {} merges to {}", vocab_size, merges.len(), out_dir);
+    println!(
+        "Exported {} vocab, {} merges to {}",
+        vocab_size,
+        merges.len(),
+        out_dir
+    );
     println!("  tokenizer.json        (HF tokenizers, ByteLevel + BPE)");
     println!("  tokenizer_config.json (model_max_length, special tokens)");
     println!("  vocab.json            (slow-tokenizer vocab)");

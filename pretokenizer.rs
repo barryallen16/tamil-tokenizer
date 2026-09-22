@@ -35,6 +35,14 @@ impl TamilPretokenizer {
         Self { pattern }
     }
 
+    /// The pattern as written, for tools that must reproduce our chunking
+    /// exactly. HF's `ByteLevel` pretokenizer hardcodes GPT-2's pattern instead,
+    /// and that pattern byte-maps text before BPE sees it, so an export has to
+    /// use this one to stay compatible.
+    pub fn pattern(&self) -> &str {
+        self.pattern.as_str()
+    }
+
     pub fn pretokenize<'a>(&self, text: &'a str) -> Vec<&'a str> {
         self.pattern.find_iter(text).map(|m| m.as_str()).collect()
     }

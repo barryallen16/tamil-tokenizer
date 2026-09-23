@@ -4,11 +4,13 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ## Features
 
-- **Tamil-aware base vocabulary** — 524 tokens with no training: 256 byte tokens, 216 consonant+vowel-sign clusters, 31 standalone Tamil characters, and 21 digits and symbols
+- **Tamil-aware base vocabulary** — 606 tokens with no training: 256 byte tokens, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 39 standalone Tamil characters, and 21 digits and symbols
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
+- **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores
+- **Hugging Face export** — `export_hf` writes `tokenizer.json`, `tokenizer_config.json`, `vocab.json` and `merges.txt`, verified ID-for-ID against Python `tokenizers`
 - **Special token support** — BOS/EOS, language tags, question/answer markers, and 100 reserved slots (o200k-style layout)
-- **GPT-2 compatible byte mappings** — Control characters mapped to printable Unicode for clean token display
+- **GPT-2 compatible byte mappings** — The exact byte-to-unicode table from GPT-2, so exports match Hugging Face's `ByteLevel`
 
 ## Project Structure
 
@@ -23,13 +25,18 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── encode.rs               # CLI: encode text to token IDs
 ├── decode.rs               # CLI: decode token IDs back to text
 ├── benchmark.rs            # Corpus benchmark (Rust)
+├── bench.rs                # Throughput: single-thread vs rayon, bytes/token
+├── profile_encode.rs       # Where encode time goes: pretokenize vs merges
+├── export_hf.rs            # CLI: write Hugging Face tokenizer artifacts
+├── encode_lines.rs         # CLI: JSON id-per-line output (for verify scripts)
 ├── bench_encode.rs         # CLI: encode one text or stdin lines (for scripts)
 ├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
 ├── main.rs                 # Interactive encoder/decoder REPL
-├── tests/lib.rs            # Test suite (43 tests)
+├── tests/lib.rs            # Test suite (46 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
-├── scripts/extract_wiki_*.py # One-off Wikipedia corpus extraction
+├── scripts/extract_wiki_fast.py # Wiki dump extraction with MediaWiki cleaning
+├── scripts/verify_hf_export.py  # Checks HF export IDs against the Rust encoder
 └── data/tamil_corpus.txt   # 117-line sample corpus
 ```
 
@@ -101,10 +108,32 @@ cargo run --release --bin main -- ./output/tamil_tokenizer.json
 # Rust encoder benchmark
 cargo run --release --bin benchmark
 
+# Throughput on a real corpus: single-thread vs rayon, plus bytes/token
+cargo run --release --bin bench -- ./output/tamil_32k.json ./data/tamil_wiki_clean.txt
+
+# Where encode time goes
+cargo run --release --bin profile_encode -- ./output/tamil_32k.json ./data/tamil_wiki_clean.txt
+
 # Compression and fertility report (no extra dependencies)
 python scripts/evaluate.py
 python scripts/evaluate.py ./output/tamil_tokenizer.json
 ```
+
+### 6. Export for Hugging Face
+
+```bash
+# Writes tokenizer.json, tokenizer_config.json, vocab.json, merges.txt
+cargo run --release --bin export_hf -- ./output/tamil_64k.json ./output/hf64k 512
+
+# Confirm Python produces the same IDs (needs: pip install tokenizers)
+cargo build --release --bin encode_lines
+python scripts/verify_hf_export.py ./output/tamil_64k.json ./output/hf64k
+```
+
+Measured on 12,000 wiki lines, the exported 32K and 64K models match this
+repo's encoder on **99.6% of lines**, and every remaining line differs only in
+how it encodes Latin-1 characters that are byte tokens under GPT-2's table (see
+`Known limits`).
 
 ## Library Usage (Rust)
 
@@ -222,13 +251,15 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
-| Encode throughput (10K wiki lines) | ~23 MB/s (1K vocab), ~15 MB/s (30K wiki vocab) |
+| Encode throughput (single thread, 16 MB clean wiki) | 17.8 MB/s (32K vocab), 12.7 MB/s (64K vocab) |
+| Encode throughput (rayon batch, 16 MB clean wiki) | 42.0 MB/s (32K vocab), 32.2 MB/s (64K vocab) |
 
 *\*The 907 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
 
-Throughput measured with `bench_speed` over 10,000 wiki lines x 3 repeats
-(3.1 MB per pass); run-to-run variance is ~1%. The 30K vocab is slower per byte
-because its automaton and rank scans are larger, but it emits half the tokens.
+Throughput measured with `cargo run --release --bin bench`, best of three passes
+over 16 MB of `data/tamil_wiki_clean.txt`. Run-to-run variance is a few percent.
+The 64K vocab is slower per byte because its automaton and rank scans are larger,
+but it emits 5% fewer tokens.
 
 ### Head-to-head, same inputs, measured here
 
@@ -276,9 +307,34 @@ Even at 30K merges the tail pair frequency is 11, so no singleton junk appears
 and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). A 5,000-line
 wiki fuzz through encode/decode round-trips byte-exact on both the 1K and 30K
 vocabs. The small corpus still favors its in-domain model (2.77 vs 2.71 for the
-30K wiki model): domain beats budget. Note the wiki corpus is noisy -- about a quarter of the
-1K model's merges are ASCII markup fragments (`colo+r`, `j+pg`) -- so a
-production run wants markup stripping in extraction first.
+30K wiki model): domain beats budget.
+
+### Cleaning the wiki corpus
+
+A quarter of the 1K model's merges were ASCII markup (`colo+r`, `j+pg`), because
+the raw dump carries `thumb|`, `align=`, `[[Category:` and `{{cite}}`.
+`scripts/extract_wiki_fast.py` now strips templates, `<ref>`, file links,
+tables, headings, bold markers, entities and bare URLs, then keeps a line only
+if Tamil dominates and markup characters stay under 2%. Run it on the dump, or
+on an already-extracted corpus:
+
+```bash
+python scripts/extract_wiki_fast.py --clean data/tamil_wiki_corpus.txt data/tamil_wiki_clean.txt
+```
+
+On the 127,889-line wiki corpus this keeps 111,956 lines (32.3 MB of 38.8 MB).
+A model trained on the cleaned corpus at 30K merges reaches **10.76 bytes/token**,
+against 8.31 for the same merge budget on the uncleaned corpus.
+
+### Cleaned-corpus models
+
+| Merges | Vocab | Load corpus | Train merges | Wiki B/tok | Single-thread | rayon batch |
+|-------:|------:|------------:|-------------:|-----------:|--------------:|------------:|
+| 30,000 | 31,341 | 2.5 s | 1.1 s | 10.76 | 17.8 MB/s | 42.0 MB/s |
+| 60,000 | 61,341 | 2.4 s | 1.2 s | 11.34 | 12.7 MB/s | 32.2 MB/s |
+
+`rayon batch` is `encode_ordinary_batch` over the same lines, so it scales the
+single-thread number across cores (2.4-2.5x on this machine).
 
 ### How encoding works
 
@@ -290,9 +346,13 @@ until no ranked pair remains -- then one token ID per symbol. Anything without a
 ID falls back to one byte-level token per UTF-8 byte, which keeps encoding
 lossless for any input.
 
-Byte tokens use GPT-2 style stand-in characters (U+0100 to U+01A1). Tokens containing
-a stand-in are kept out of the matcher, so real text containing those characters
-(for example Polish or Turkish letters) is never mistaken for raw bytes.
+Byte tokens use GPT-2's byte-to-unicode table exactly. That matters more than it
+looks: Hugging Face hardcodes the same table in `ByteLevel`, so any drift shows
+up only after export, as silently wrong IDs in Python. A stand-in character is
+therefore any byte token outside printable ASCII — GPT-2 keeps bytes 161-255 as
+ordinary Latin-1, so `Ã` is both the byte token for `0xC3` and a real character.
+Tokens containing a stand-in are kept out of the matcher, so such text is never
+mistaken for raw bytes; it takes the byte fallback instead.
 
 Special tokens keep the IDs stored in the file: a trained vocab already contains
 them, and the encoder reuses those IDs instead of remapping them. The exact
@@ -311,6 +371,41 @@ load it — use the Rust CLI or `lib.rs` directly. And this repo makes no
 throughput comparison against other tokenizer libraries; the figures above are
 its own measurements only.
 
+## Hugging Face export
+
+`export_hf` writes the artifacts `transformers` expects:
+
+| File | Purpose |
+|------|---------|
+| `tokenizer.json` | `PreTrainedTokenizerFast` — `Split` pretokenizer + BPE model |
+| `tokenizer_config.json` | `model_max_length`, BOS/EOS/UNK names |
+| `vocab.json` | Slow-tokenizer vocab (`token -> id`) |
+| `merges.txt` | Slow-tokenizer merges, rank order, `#version: 0.2` header |
+
+Two of our design choices have no HF equivalent, and the exporter translates
+both instead of leaving them to fail silently in Python:
+
+- **Pretokenizer.** Ours is a Tamil-aware regex. HF's `ByteLevel` pretokenizer
+  hardcodes GPT-2's pattern, and that pattern byte-maps text before BPE sees it,
+  so no merge in the file could ever match. The export uses `Split` with our own
+  regex, which leaves raw text intact.
+- **Base clusters.** Our trainer treats `கே` and `ங்` as atomic base symbols. HF
+  BPE has no base-symbol set: it starts from single characters and can only reach
+  a token through merges. The exporter adds 291 promotion merges that build each
+  such token from its characters, ranked by decreasing token length so HF
+  resolves overlaps by longest match the way our automaton does. It also appends
+  the 4 characters (`ோ`, `ூ`, `ொ`, `ௌ`) that the base vocab lacks but the
+  corpus contains.
+
+### Known limits
+
+162 byte-stand-in characters are also ordinary Latin-1 text (`²`, `é`, `ñ`). Our
+encoder routes those through the byte fallback and emits two tokens; HF, which
+sees raw text here, matches the stand-in and emits one. This affects about 0.2%
+of Tamil lines. Closing it would mean byte-mapping in a pretokenizer, which then
+breaks every raw-text merge above. `verify_hf_export.py` counts these separately
+and fails on anything else.
+
 ## Dependencies
 
 | Crate | Purpose |
@@ -326,7 +421,9 @@ its own measurements only.
 
 The trained tokenizer is published at
 [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)
-as `tamil_tokenizer_wiki.json`, along with the corpora used to train it.
+as `tamil_tokenizer_wiki.json`, along with the corpora used to train it. That
+file is in this repo's `{vocab, merges, metadata}` format; run `export_hf` on it
+to get a `tokenizer.json` Python can load.
 
 ### Usage with the Rust CLI
 

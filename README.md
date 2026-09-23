@@ -4,7 +4,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ## Features
 
-- **Tamil-aware base vocabulary** — 606 tokens with no training: 256 byte tokens, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 39 standalone Tamil characters, and 21 digits and symbols
+- **Tamil-aware base vocabulary** — 607 tokens with no training: 256 byte tokens, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 39 standalone Tamil characters, and 21 digits and symbols
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
 - **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores

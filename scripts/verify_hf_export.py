@@ -69,7 +69,9 @@ def main():
 
     # Known and accepted: the Latin-1 stand-in case above. Anything else is a
     # real regression, so only those lines are tolerated.
-    def only_standin_diffs(line):
+    vocab = json.load(open(f'{hf_dir}/vocab.json', encoding='utf-8'))
+
+    def only_standin_diffs(line, vocab):
         # Bytes above 126 that GPT-2 keeps as ordinary Latin-1 chars are
         # byte tokens *and* real text. Ours emits their UTF-8 bytes, HF emits
         # the stand-in itself.
@@ -84,15 +86,34 @@ def main():
                 risky.add(c)
         return any(c in risky for c in line)
 
-    unexplained = 0
+
+    def has_unvocab_chars(line, vocab):
+        # HF BPE has no byte fallback when unk_token is null, so a character
+        # absent from the vocab is silently dropped. Ours emits its bytes.
+        return any(c not in vocab for c in line)
+
+    unexplained = []
+    standin = unvocab = 0
     for line in lines:
         if tok.encode(line).ids == ours[line]:
             continue
-        if not only_standin_diffs(line):
-            unexplained += 1
+        if has_unvocab_chars(line, vocab):
+            unvocab += 1
+        elif only_standin_diffs(line, vocab):
+            standin += 1
+        else:
+            unexplained.append(line)
+
+    print(f'\nexplained: {standin} Latin-1 stand-in, {unvocab} unvocab characters')
+    if unvocab:
+        print('  Unvocab characters are DROPPED by HF BPE (no byte fallback).')
+        print('  Fix if it matters: add <0x00>..<0xFF> tokens, set byte_fallback')
+        print('  true, and prepend a Replace to the decoder mapping them back.')
 
     if unexplained:
-        print(f'\n{unexplained} lines differ for a reason other than Latin-1 stand-ins')
+        print(f'\n{len(unexplained)} lines differ for an unknown reason')
+        for line in unexplained[:3]:
+            print(f'  {line[:70]!r}')
         return 1
     return 0
 

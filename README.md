@@ -27,6 +27,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── benchmark.rs            # Corpus benchmark (Rust)
 ├── bench.rs                # Throughput: single-thread vs rayon, bytes/token
 ├── profile_encode.rs       # Where encode time goes: pretokenize vs merges
+├── score.rs                # Bytes/token + throughput for one corpus (fast, in-process)
 ├── export_hf.rs            # CLI: write Hugging Face tokenizer artifacts
 ├── encode_lines.rs         # CLI: JSON id-per-line output (for verify scripts)
 ├── bench_encode.rs         # CLI: encode one text or stdin lines (for scripts)
@@ -36,7 +37,9 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── tests/lib.rs            # Test suite (46 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
 ├── scripts/extract_wiki_fast.py # Wiki dump extraction with MediaWiki cleaning
-├── scripts/verify_hf_export.py  # Checks HF export IDs against the Rust encoder
+├── scripts/fetch_indiccorp.py    # Pull a byte range of IndicCorpV2 Tamil
+├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
+├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
 └── data/tamil_corpus.txt   # 117-line sample corpus
 ```
 
@@ -113,6 +116,9 @@ cargo run --release --bin bench -- ./output/tamil_32k.json ./data/tamil_wiki_cle
 
 # Where encode time goes
 cargo run --release --bin profile_encode -- ./output/tamil_32k.json ./data/tamil_wiki_clean.txt
+
+# Compression + throughput for one corpus, in-process
+cargo run --release --bin score -- ./output/tamil_32k.json ./data/wiki/test.txt wiki
 
 # Compression and fertility report (no extra dependencies)
 python scripts/evaluate.py
@@ -326,15 +332,69 @@ On the 127,889-line wiki corpus this keeps 111,956 lines (32.3 MB of 38.8 MB).
 A model trained on the cleaned corpus at 30K merges reaches **10.76 bytes/token**,
 against 8.31 for the same merge budget on the uncleaned corpus.
 
-### Cleaned-corpus models
+### Multi-domain: IndicCorp Tamil
 
-| Merges | Vocab | Load corpus | Train merges | Wiki B/tok | Single-thread | rayon batch |
-|-------:|------:|------------:|-------------:|-----------:|--------------:|------------:|
-| 30,000 | 31,341 | 2.5 s | 1.1 s | 10.76 | 17.8 MB/s | 42.0 MB/s |
-| 60,000 | 61,341 | 2.4 s | 1.2 s | 11.34 | 12.7 MB/s | 32.2 MB/s |
+```bash
+python scripts/fetch_indiccorp.py --limit-mb 400   # 419 MB slice of the 11.8 GB file
+python scripts/prep_corpus.py data/indiccorp_ta.txt data/indiccorp
+python scripts/prep_corpus.py --split data/tamil_wiki_clean.txt data/wiki
+python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic
 
-`rayon batch` is `encode_ordinary_batch` over the same lines, so it scales the
-single-thread number across cores (2.4-2.5x on this machine).
+cargo run --release --bin score -- ./output/dom_mixed_120000.json ./data/wiki/test.txt wiki
+```
+
+IndicCorp is one document per line, so `prep_corpus.py` splits into sentences and
+applies the same cleaning gate as the wiki corpus. Held-out sets are the *tail* of
+wiki and the *head* of IndicCorp, so no model is scored on text adjacent to its
+own training slice.
+
+**Compression by domain** — bytes/token, higher is better, held-out splits only:
+
+| Training corpus | Merges | wiki | IndicCorp |
+|---|---:|---:|---:|
+| wiki 25 MB | 30K | **10.183** | 10.280 |
+| IndicCorp 199 MB | 30K | 9.707 | **10.916** |
+| mixed 25 wiki + 199 ic | 30K | 10.005 | 10.948 |
+| wiki 25 MB | 120K | 10.895 | 11.095 |
+| IndicCorp 199 MB | 120K | 10.554 | 11.813 |
+| mixed 25 wiki + 199 ic | 120K | **10.914** | **11.866** |
+
+Three things this shows:
+
+- **Domain skew is real but asymmetric.** Wiki is the better general-purpose Tamil
+  corpus: homogeneous, so its frequent n-grams are core orthography that
+  transfers to news. The IndicCorp model loses 3.3% on wiki.
+- **Volume is irrelevant.** Retraining wiki on the same 25 MB repeated 8 times
+  produces a byte-identical model (10.183 / 10.280). The trainer keys on unique
+  words, so upsampling scales frequencies uniformly. Only *diversity* costs.
+- **Mixing only pays above ~100K merges.** At 30K the mix is dominated — it loses
+  to wiki-only on wiki and ties IndicCorp-only on IndicCorp. At 120K it wins on
+  both.
+
+### Cost of a large vocab
+
+| Model | Merges | Vocab | wiki MB/s |
+|---|---:|---:|---:|
+| wiki | 30K | 31,261 | 17.3 |
+| mixed | 30K | 31,934 | 16.9 |
+| wiki | 120K | 106,042 | 5.5 |
+| mixed | 120K | 121,934 | 6.9 |
+
+30K → 120K buys 7-9% compression for **2.4x throughput**. Stripping the merge
+list isolates where that goes:
+
+| Config | MB/s |
+|---|---:|
+| 31K vocab, merges stripped | 37.9 |
+| 122K vocab, merges stripped | 31.5 |
+| 31K vocab, merges on | 17.4 |
+| 122K vocab, merges on | 7.3 |
+
+The automaton is nearly free at 4x the patterns (-17%). The merge stage is the
+cost: past ~100K entries `pair_to_merge` stops fitting in cache. So **30K on
+cleaned wiki is the default** (17 MB/s, 10.18 bytes/token, within 1% of best on
+IndicCorp too); reach for 120K mixed only when sequence length matters more
+than latency.
 
 ### How encoding works
 
@@ -403,8 +463,16 @@ both instead of leaving them to fail silently in Python:
 encoder routes those through the byte fallback and emits two tokens; HF, which
 sees raw text here, matches the stand-in and emits one. This affects about 0.2%
 of Tamil lines. Closing it would mean byte-mapping in a pretokenizer, which then
-breaks every raw-text merge above. `verify_hf_export.py` counts these separately
-and fails on anything else.
+breaks every raw-text merge above.
+
+Separately, with `unk_token: null` and no `byte_fallback`, HF BPE **silently
+drops** characters that are absent from the vocab — seen on lines containing Han
+characters (`艾青`) in an IndicCorp-trained model, at ~0.04% of lines. Ours emits
+their UTF-8 bytes. Fix: add `<0x00>..<0xFF>` tokens, set `byte_fallback: true`,
+and prepend a `Replace` to the decoder.
+
+`verify_hf_export.py` counts both categories separately and fails on anything
+else. Measured 99.4-99.7% ID agreement across the three models.
 
 ## Dependencies
 

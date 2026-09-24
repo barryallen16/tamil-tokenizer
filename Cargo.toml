@@ -30,6 +30,10 @@ name = "benchmark"
 path = "benchmark.rs"
 
 [[bin]]
+name = "score"
+path = "score.rs"
+
+[[bin]]
 name = "bench"
 path = "bench.rs"
 

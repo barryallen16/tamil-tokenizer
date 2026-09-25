@@ -14,8 +14,37 @@ mod tests {
     #[test]
     fn test_vocab_size_range() {
         let tok = TamilTokenizer::new();
-        assert!(tok.vocab_size() > 550);
-        assert!(tok.vocab_size() < 700);
+        // 256 byte + 12 vowels + 23 consonants + 276 consonant-vowel + 4 special
+        // + 15 ligatures + 529 conjunct stems (23 x 23) + 21 digits and
+        // symbols, minus க்ஷ which is both a ligature and a conjunct stem.
+        assert_eq!(tok.vocab_size(), 1135);
+    }
+
+    /// Conjunct stems are the fix that actually moved compression; Grantha
+    /// consonants alone barely did. Tamil joins consonants constantly
+    /// (க்ஷ, ஸ்ரீ, க்ட, ண்ட) and the base set previously had to spend 3-4
+    /// tokens on each one.
+    #[test]
+    fn test_conjunct_stems_are_single_tokens() {
+        let enc = make_encoder();
+        for stem in ["க்ஷ", "ஸ்ர", "க்ட", "ண்ட", "ஜ்ஜ", "ஷ்ட", "ஸ்த", "ஷ்ம", "ஶ்ந"]
+        {
+            assert_eq!(
+                enc.encode_ordinary(stem).len(),
+                1,
+                "conjunct {stem:?} should be one token"
+            );
+        }
+        assert_eq!(enc.encode_ordinary("க்ஷ").len(), 1);
+    }
+
+    #[test]
+    fn test_conjunct_words_roundtrip() {
+        let enc = make_encoder();
+        for word in ["விஷயம்", "பாஷணம்", "கண்டனம்", "தமிழ்நாடு", "ஸ்ரீராம்"]
+        {
+            assert_eq!(enc.decode(&enc.encode_ordinary(word)), word);
+        }
     }
 
     /// Losslessness rests on this: every one of the 256 bytes must have a

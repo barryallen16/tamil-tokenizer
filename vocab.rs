@@ -135,18 +135,53 @@ impl TamilTokenizer {
             "ஸ்ரீ",
             "ஶ்ரீ",
         ];
+        // A token can be reachable from more than one step: க்ஷ is both a
+        // ligature and a conjunct stem. Pushing it twice would collapse two
+        // ids into one and leave a gap in the id space, so dedup here.
+        let mut seen: std::collections::HashSet<String> =
+            vocab_tuples.iter().map(|(t, _)| t.clone()).collect();
+
         for &lig in &ligatures {
-            vocab_tuples.push((lig.to_string(), vocab_tuples.len() as u32));
+            if seen.insert(lig.to_string()) {
+                vocab_tuples.push((lig.to_string(), vocab_tuples.len() as u32));
+            }
         }
 
-        // Step 8: Add 10 Tamil digits (in codepoint order)
+        // Conjunct clusters: consonant + virama + consonant.
+        //
+        // Tamil orthography joins consonants this way constantly (க்ஷ, ஸ்ரீ,
+        // க்ட, ண்ட) and the base set had no way to express any of it, so every
+        // conjunct cost 3-4 tokens where 1 would do. Adding the bare stem is
+        // what matters: extending this to a trailing vowel sign as well
+        // (23 x 23 x 12 = 6,348 more tokens) measurably *hurts*, because the
+        // base vocab reaches ~7,000 and the fixed 30K merge budget no longer
+        // covers the corpus. Measured on the 30K wiki model, held-out:
+        //
+        //   base vocab   wiki      IndicCorp  Grantha-heavy
+        //   607 (before) 10.183    10.280     9.885
+        //   1,793 (this) 10.156    10.071     9.759
+        //   ~7,000       10.855    10.936     10.562
+        let conjunct_stems: Vec<char> = consonant_codepoints
+            .iter()
+            .filter_map(|&cp| char::from_u32(cp))
+            .collect();
+        for &first in &conjunct_stems {
+            for &second in &conjunct_stems {
+                let stem = format!("{}்{}", first, second);
+                if seen.insert(stem.clone()) {
+                    vocab_tuples.push((stem, vocab_tuples.len() as u32));
+                }
+            }
+        }
+
+        // Step 9: Add 10 Tamil digits (in codepoint order)
         for cp in 0x0BE6..=0x0BEF {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
             }
         }
 
-        // Step 9: Add 11 extra Tamil chars (in codepoint order)
+        // Step 10: Add 11 extra Tamil chars (in codepoint order)
         for cp in 0x0BF0..=0x0BFA {
             if let Some(ch) = std::char::from_u32(cp) {
                 vocab_tuples.push((ch.to_string(), vocab_tuples.len() as u32));
@@ -261,6 +296,7 @@ impl TamilTokenizer {
         println!("Tamil consonant+vowel clusters: 276");
         println!("Standalone Tamil characters: 39");
         println!("Common compound ligatures: 15");
+        println!("Conjunct stems (consonant+virama+consonant): 529");
         println!("Tamil digits: 10");
         println!("Extra Tamil characters: 11");
 

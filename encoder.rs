@@ -36,9 +36,82 @@ struct Symbol {
     id: Option<u32>,
 }
 
-#[inline]
-fn pack_pair(a: u32, b: u32) -> u64 {
-    ((a as u64) << 32) | (b as u64)
+/// Merge rules in CSR layout, keyed by the first token of the pair.
+///
+/// A hash map was the obvious choice, and it is what this used to be. At a
+/// 120K-merge vocab it cost 2.4x throughput (17.4 -> 7.3 MB/s) while the
+/// automaton over the same 122K patterns cost only 17%: the table stops
+/// fitting in cache and every probe misses.
+///
+/// A BPE merge table is almost all empty though. Each token is the *result* of
+/// at most one merge, so the pairs starting with a given id are few and
+/// contiguous when sorted. Indexing by `a` and binary-searching a short slice
+/// replaces the random probe with one sequential read plus a couple of
+/// comparisons.
+struct MergeTable {
+    /// `offsets[a]..offsets[a + 1]` is the slice of `data` for first token `a`.
+    offsets: Vec<u32>,
+    /// Sorted by `b` within each slice.
+    data: Vec<(u32, u32, u32)>, // (b, rank, new_id)
+}
+
+impl MergeTable {
+    fn build(merges: &[(String, String)], ids: &FxHashMap<String, u32>, vocab_size: usize) -> Self {
+        let mut pairs: Vec<(u32, u32, u32, u32)> = merges
+            .iter()
+            .enumerate()
+            .filter_map(|(rank, (a, b))| {
+                let merged = format!("{a}{b}");
+                match (ids.get(a), ids.get(b), ids.get(&merged)) {
+                    (Some(&ia), Some(&ib), Some(&new_id)) => Some((ia, ib, rank as u32, new_id)),
+                    _ => None,
+                }
+            })
+            .collect();
+        pairs.sort_unstable_by_key(|&(a, b, ..)| (a, b));
+
+        let mut offsets = vec![0u32; vocab_size + 1];
+        for &(a, ..) in &pairs {
+            offsets[(a + 1) as usize] += 1;
+        }
+        for i in 0..vocab_size {
+            offsets[i + 1] += offsets[i];
+        }
+
+        let mut data = vec![(0u32, 0u32, 0u32); pairs.len()];
+        let mut cursor = offsets.clone();
+        for (a, b, rank, new_id) in pairs {
+            let slot = &mut cursor[a as usize];
+            data[*slot as usize] = (b, rank, new_id);
+            *slot += 1;
+        }
+
+        Self { offsets, data }
+    }
+
+    #[inline]
+    fn get(&self, a: u32, b: u32) -> Option<(u32, u32)> {
+        let (start, end) = (
+            self.offsets[a as usize] as usize,
+            self.offsets[(a + 1) as usize] as usize,
+        );
+        let slice = &self.data[start..end];
+        // Slices are short; a plain scan beats binary search on branch
+        // prediction for the 0-3 element case that dominates.
+        for &(b2, rank, new_id) in slice {
+            if b2 == b {
+                return Some((rank, new_id));
+            }
+            if b2 > b {
+                return None;
+            }
+        }
+        None
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 pub struct FastBPEEncoder {
@@ -46,7 +119,7 @@ pub struct FastBPEEncoder {
     id_to_token: Arc<Vec<String>>,
     base_automaton: Arc<AhoCorasick>,
     pattern_to_id: Arc<Vec<u32>>,
-    pair_to_merge: FxHashMap<u64, (u32, u32)>,
+    merges: MergeTable,
     pretokenizer: TamilPretokenizer,
     byte_encoder: FxHashMap<u8, char>,
     byte_decoder: FxHashMap<char, u8>,
@@ -205,18 +278,9 @@ impl FastBPEEncoder {
 
         // Merge results are excluded from base matching so rank order decides.
         // Rank = position in the trainer's merge list (0 = learned first).
-        let mut pair_to_merge: FxHashMap<u64, (u32, u32)> = FxHashMap::default();
-        let mut merged_strings = std::collections::HashSet::new();
-        for (rank, (a, b)) in merges.iter().enumerate() {
-            let merged = format!("{}{}", a, b);
-            if let (Some(&id_a), Some(&id_b), Some(&new_id)) =
-                (vocab.get(a), vocab.get(b), vocab.get(&merged))
-            {
-                let key = pack_pair(id_a, id_b);
-                pair_to_merge.insert(key, (rank as u32, new_id));
-            }
-            merged_strings.insert(merged);
-        }
+        let merge_table = MergeTable::build(merges, &vocab, vocab_size);
+        let merged_strings: std::collections::HashSet<String> =
+            merges.iter().map(|(a, b)| format!("{a}{b}")).collect();
 
         let base_patterns: Vec<&str> = vocab
             .keys()
@@ -240,7 +304,7 @@ impl FastBPEEncoder {
             id_to_token: Arc::new(id_to_token),
             base_automaton: Arc::new(base_automaton),
             pattern_to_id: Arc::new(pattern_to_id),
-            pair_to_merge,
+            merges: merge_table,
             pretokenizer: TamilPretokenizer::new(),
             byte_encoder: byte_encoder.into_iter().collect(),
             byte_decoder: byte_decoder.into_iter().collect(),
@@ -316,15 +380,14 @@ impl FastBPEEncoder {
     /// merge the adjacent pair with the lowest rank (earliest learned); ties go
     /// to the leftmost pair.
     fn apply_merges(&self, symbols: &mut Vec<Symbol>) {
-        if self.pair_to_merge.is_empty() || symbols.len() < 2 {
+        if self.merges.len() == 0 || symbols.len() < 2 {
             return;
         }
         while symbols.len() >= 2 {
             let mut best: Option<(usize, u32, u32)> = None;
             for i in 0..symbols.len() - 1 {
                 if let (Some(id_a), Some(id_b)) = (symbols[i].id, symbols[i + 1].id) {
-                    let key = pack_pair(id_a, id_b);
-                    if let Some(&(rank, new_id)) = self.pair_to_merge.get(&key) {
+                    if let Some((rank, new_id)) = self.merges.get(id_a, id_b) {
                         if best.is_none_or(|(_, r, _)| rank < r) {
                             best = Some((i, rank, new_id));
                         }

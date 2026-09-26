@@ -43,9 +43,9 @@ fn main() {
 
 fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<()> {
     let (mut vocab, merges) = tamil_tokenizer::load_tokenizer(src)?;
-    let vocab_size = vocab.len();
+    let trained_vocab = vocab.len();
 
-    let (_, byte_decoder) = TamilTokenizer::create_byte_mappings();
+    let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
     let byte_chars: HashSet<char> = byte_decoder.keys().copied().collect();
 
     // A character used by any token but absent from the vocab cannot be looked
@@ -58,10 +58,24 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
     missing.sort_unstable();
     missing.dedup();
     let added_prims = missing.len();
-    let first_new_id = vocab.values().copied().max().map_or(0, |m| m + 1);
-    for (offset, c) in missing.into_iter().enumerate() {
-        vocab.insert(c.to_string(), first_new_id + offset as u32);
+    let mut next_id = vocab.values().copied().max().map_or(0, |m| m + 1);
+    for c in missing {
+        vocab.insert(c.to_string(), next_id);
+        next_id += 1;
     }
+
+    // Byte fallback. Without it HF BPE silently drops any character absent from
+    // the vocab, where our encoder emits its UTF-8 bytes. HF's convention is
+    // `<0xNN>` tokens plus `byte_fallback: true`, and the decoder maps them
+    // back through the same GPT-2 byte table.
+    let mut byte_tokens = Vec::with_capacity(256);
+    for b in 0..=255u8 {
+        let name = format!("<0x{b:02X}>");
+        vocab.insert(name.clone(), next_id);
+        byte_tokens.push((name, byte_encoder[&b]));
+        next_id += 1;
+    }
+    let vocab_size = vocab.len();
 
     // Promotion: every multi-char token must be reachable from single
     // characters. Build each one left to right, and only emit a rule whose
@@ -171,6 +185,19 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
     let pretok = TamilPretokenizer::new();
     let pattern = pretok.pattern().to_string();
 
+    // HF ships a ByteFallback decoder that turns <0xNN> back into the byte
+    // char; ByteLevel then maps byte chars to raw bytes. One entry instead of
+    // 256 Replace rules, and it cannot drift from the token names.
+    let decoders = vec![
+        json!({ "type": "ByteFallback" }),
+        json!({
+            "type": "ByteLevel",
+            "add_prefix_space": false,
+            "trim_offsets": true,
+            "use_regex": true,
+        }),
+    ];
+
     let hf = json!({
         "version": "1.0",
         "truncation": null,
@@ -190,10 +217,8 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
         },
         "post_processor": null,
         "decoder": {
-            "type": "ByteLevel",
-            "add_prefix_space": false,
-            "trim_offsets": true,
-            "use_regex": true,
+            "type": "Sequence",
+            "decoders": decoders,
         },
         "model": {
             "type": "BPE",
@@ -202,7 +227,7 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
             "continuing_subword_prefix": null,
             "end_of_word_suffix": null,
             "fuse_unk": false,
-            "byte_fallback": false,
+            "byte_fallback": true,
             "ignore_merges": false,
             "vocab": Value::Object(model_vocab),
             "merges": all_merges
@@ -251,7 +276,7 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
 
     println!(
         "Exported {} vocab, {} merges ({} promotions) to {}",
-        vocab_size,
+        trained_vocab,
         all_merges.len(),
         promotions.len(),
         out_dir

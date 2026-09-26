@@ -75,7 +75,6 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
         byte_tokens.push((name, byte_encoder[&b]));
         next_id += 1;
     }
-    let vocab_size = vocab.len();
 
     // Promotion: every multi-char token must be reachable from single
     // characters. Build each one left to right, and only emit a rule whose

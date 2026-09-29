@@ -68,16 +68,19 @@ def score_spm(model_path: str, corpus: str, max_bytes: int):
     bytes_n = tokens = words = 0
     with open(corpus, encoding='utf-8') as f:
         for line in f:
-            line = line.strip()
-            if not line:
+            # Strip the line ending only. `score.rs` counts the line as written,
+            # so stripping leading or trailing spaces here would give the two
+            # columns different denominators and flatter whichever tokenizer
+            # happened to be measured by this branch.
+            line = line.rstrip('\r\n')
+            if not line.strip():
                 continue
             if bytes_n and bytes_n + len(line.encode('utf-8')) > max_bytes:
                 break
             bytes_n += len(line.encode('utf-8'))
             tokens += len(sp.encode(line, out_type=int))
             words += len(line.split())
-    # (bytes, tokens, tokens-per-word) to match score_ours.
-    return bytes_n, tokens, tokens / max(words, 1)
+    return bytes_n / tokens, tokens / max(words, 1)
 
 
 def score_ours(tokenizer_path: str, corpus: str, max_bytes: int):
@@ -93,8 +96,13 @@ def score_ours(tokenizer_path: str, corpus: str, max_bytes: int):
     if out.returncode != 0:
         return None
     # score prints: label \t MB \t tokens \t bytes/token \t tokens/word \t MB/s
+    #
+    # Read bytes/token straight off the line rather than rebuilding it from the
+    # MB column. That column is printed to one decimal, so `int(float(p[1]) *
+    # 1024 * 1024)` overshoots by up to 0.05 MB and inflates this row by ~0.4% --
+    # in favour of our own model, which is the direction that matters.
     p = out.stdout.strip().split('\t')
-    return int(float(p[1]) * 1024 * 1024), int(p[2]), float(p[4])
+    return float(p[3]), float(p[4])
 
 
 def main():
@@ -105,7 +113,7 @@ def main():
     ap.add_argument('--seed-vocab-size', type=int, default=250000)
     ap.add_argument('--max-bytes', type=int, default=6 * 1024 * 1024)
     ap.add_argument('--skip-train', action='store_true')
-    ap.add_argument('--ours', default='output/v2_wiki_30000.json')
+    ap.add_argument('--ours', default='output/v3_wiki_30000.json')
     args = ap.parse_args()
 
     corpus = args.train if os.path.isabs(args.train) else os.path.join(BASE, args.train)
@@ -152,8 +160,8 @@ def main():
             if res is None:
                 cells.append(f'{"n/a":>26}')
                 continue
-            b, t, tok_per_word = res
-            cells.append(f'{b / t:>18.3f} {tok_per_word:>7.2f}')
+            bytes_per_token, tok_per_word = res
+            cells.append(f'{bytes_per_token:>18.3f} {tok_per_word:>7.2f}')
         print(f'{label:<22}' + ''.join(cells))
 
     print()

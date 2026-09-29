@@ -8,8 +8,12 @@ reader can tell a shipped win from a rejected idea without re-running anything.
 Items that were implemented but then reverted by measurement say so explicitly,
 with the numbers that killed them.
 
-**Status.** Phases 1 and 4 done. Phase 2 done except multi-domain corpus. Phase 3
-done except the two items measurement rejected. Phase 5 not started.
+**Status.** Phases 1-5 done apart from the two open publishing items in Section
+6. Phase 5's Unigram question is answered: measured, it is not worth building.
+Two defects in the BPE trainer surfaced while answering it, and together they
+were worth **25% of the token count** — the very quantity this document is about
+— so every bytes/token figure below has been re-measured. Pre-fix numbers are
+kept alongside the corrected ones wherever they were the basis of a conclusion.
 
 ---
 
@@ -20,8 +24,8 @@ done except the two items measurement rejected. Phase 5 not started.
 | 1 | [Linguistic Base Vocabulary & Grantha Support](#1-linguistic-base-vocabulary--grantha-support) | done |
 | 2 | [Encoding Algorithmic Optimizations](#2-encoding-algorithmic-optimizations) | done, 2 items rejected by measurement |
 | 3 | [Pretokenization & Corpus Cleaning](#3-pretokenization--corpus-cleaning) | cleaning done, affix handling not started |
-| 4 | [Multi-Domain Training Corpus Scaling](#4-multi-domain-training-corpus-scaling) | measured; mix recommendation overturned |
-| 5 | [Architectural Evolution: Unigram LM vs. Greedy BPE](#5-architectural-evolution-unigram-lm-vs-greedy-bpe) | not started |
+| 4 | [Multi-Domain Training Corpus Scaling](#4-multi-domain-training-corpus-scaling) | measured; all figures corrected |
+| 5 | [Architectural Evolution: Unigram LM vs. Greedy BPE](#5-architectural-evolution-unigram-lm-vs-greedy-bpe) | done; Unigram rejected on measurement |
 | 6 | [Prioritized Implementation Checklist](#6-prioritized-implementation-checklist) | |
 
 ## Summary of shipped changes
@@ -41,7 +45,11 @@ done except the two items measurement rejected. Phase 5 not started.
 | `export_hf` + `verify_hf_export.py` | roadmap asked for HF interop; it silently did not work | **99.4–99.7% ID agreement** with Python `tokenizers`, remainder categorised |
 | IndicCorpV2 Tamil fetched, mixed corpus built | domain skew was assumed, never measured | by-domain table in Section 4 |
 | Merge budget swept 30K/60K/120K | needed to know whether the mix was worth its dilution | mix **only wins above ~100K merges** |
-| Upsampled-wiki control (×8) | separated "more data" from "more diverse data" | byte-identical model: volume is irrelevant |
+| Upsampled-wiki control (×8) | separated "more data" from "more diverse data" | byte-identical model: volume is irrelevant (re-verified after the fix) |
+| Trainer heap: re-push a stale entry instead of dropping it | a dropped entry is a pair the trainer can never see again, and the heap pops the *frequent* pairs first, so it discards exactly the best candidates | **10.156 → 13.468 bytes/token** at 30K, i.e. 25% fewer tokens |
+| Trainer: sort unique words before minting token ids | ids were minted while walking a hash map, so the model depended on ahash's per-process seed | two runs on one corpus now produce byte-identical files |
+| `spm_ab.py`: dropped `line.strip()` on the SentencePiece side | `score.rs` counts lines as written, so the two columns had different denominators | no-op on the cleaned corpora, but no longer flatters one side |
+| `spm_ab.py`: read bytes/token instead of rebuilding it from the MB column | `score.rs` prints MB to one decimal, so `int(float(mb) * 1024 * 1024)` overshot by up to 0.05 MB | our row was inflated 0.4% (13.525 → 13.468), i.e. in our own favour |
 
 ---
 
@@ -78,7 +86,10 @@ re-learning syllables that should exist for free.
 | 4 | Added `ஂ` (`0x0B82`), `ௐ` (`0x0BD0`), `ௗ` (`0x0BD7`) | live Tamil text, absent from the base set |
 | 5 | Tests in [`tests/lib.rs`](tests/lib.rs) | a silent regression here is invisible: encoding still succeeds, just in more tokens |
 
-Base vocabulary: 524 → **607 tokens**, no training required.
+Base vocabulary: 524 → **607 tokens**, no training required. A later commit
+(conjunct stems, `46ac590`) took the same base set to **1,135** — 607 plus 529
+consonant-virāma-consonant stems, less one duplicate — which is the figure
+`tests/lib.rs` pins.
 
 ### Rejected
 
@@ -88,6 +99,34 @@ atomically. Changed to a longest-first loop over lengths 2..=4. Note the
 resulting dependency: any token the pretokenizer never sees as a contiguous unit
 is unreachable during training, which is why `tests/lib.rs` asserts these
 directly against the encoder rather than only through the trainer.
+
+### Measured, not fixed: words are trained in two forms and only one is reachable
+
+The pretokenizer attaches one leading space to a chunk (` ?` in the pattern), so
+mid-line ` கணிதம்` is a single chunk. The **first chunk of a line has no space**,
+so it enters the trainer as `கணிதம்` — a different symbol sequence with its own
+pair statistics. Only the spaced form survives training:
+
+| token | in the trained vocab |
+|---|---|
+| ` கணிதத்தில்`, ` கட்டிடக்கலையில்`, ` இவர்`, ` ஒரே` | yes |
+| `கணிதத்தில்`, `கட்டிடக்கலையில்`, `இவர்`, `ஒரே` | no |
+
+So `கணினி` costs 1 token mid-line (` கணி` + `னி`, or 1 for words the merge list
+covers) and 3 at the start of a line. SentencePiece gets this normalization for
+free from `add_dummy_prefix`; we do not have an equivalent.
+
+**Cost, measured with the fixed trainer:** retraining on a corpus with one space
+prepended to every line removes **1.0% of tokens** (422,093 vs 426,412 over 5,000
+held-out lines; 13.605 vs 13.468 bytes/token on the same byte denominator). Small
+— 87% of lines start with a letter, but the average line-initial word costs only
+~1 token — and it was 3.7% before the trainer fix, because the buggy trainer was
+wasting merges re-attaching spaces to its own base clusters.
+
+**Why not fixed:** closing it means either prefixing inside `pretokenize`, which
+shifts every chunk boundary and therefore invalidates every model ever trained,
+or teaching the trainer that the two forms are one word. Both need the
+compression A/B this section already demands before touching the pretokenizer.
 
 ---
 
@@ -234,6 +273,24 @@ training slice.
 ### Result: compression by domain
 
 bytes/token, higher is better. `score.rs`, single-thread, held-out splits only.
+**This first table is the corrected one** — `v3_*` models, fixed trainer.
+
+| Training corpus | Merges | wiki held-out | IndicCorp held-out |
+|---|---:|---:|---:|
+| wiki 25 MB | 30K | **13.468** | 13.449 |
+| IndicCorp 199 MB | 30K | 12.781 | **14.747** |
+| mixed 25 wiki + 199 ic | 30K | 13.138 | 14.729 |
+| wiki 25 MB | 60K | 14.429 | 14.517 |
+| IndicCorp 199 MB | 60K | 13.856 | 15.956 |
+| mixed 25 wiki + 199 ic | 60K | 14.236 | 15.939 |
+| wiki 25 MB | 120K | 15.149 | 15.330 |
+| IndicCorp 199 MB | 120K | 14.829 | 16.952 |
+| mixed 25 wiki + 199 ic | 120K | 15.212 | **16.944** |
+
+**Every cell moved, and the reason is a trainer defect, not this section.** The
+original table is kept below, because it is what this section's conclusions were
+drawn from. It was measured with a merge heap that dropped stale entries (see
+Section 5), so every published cell is 31-43% lower than the corrected one.
 
 | Training corpus | Merges | wiki held-out | IndicCorp held-out |
 |---|---:|---:|---:|
@@ -247,26 +304,55 @@ bytes/token, higher is better. `score.rs`, single-thread, held-out splits only.
 | IndicCorp 199 MB | 120K | 10.554 | 11.813 |
 | mixed 25 wiki + 199 ic | 120K | **10.914** | **11.866** |
 
+**How far these tables can be compared cell by cell.** Re-scoring the surviving
+`v2_*` files with the current binary reproduces the published *wiki* rows to
+within 0.3% (wiki 30K: 10.156 vs 10.183), but the IndicCorp and mixed rows drift
+by 1.9% and 3.0%. Those rows were therefore taken on an earlier model
+generation, and the shipped mix of corpus preparation and base vocabulary has
+moved since.
+
+The clean before/after is the pair measured here with one binary, which is what
+the fix row in the summary quotes: **10.156 → 13.468** bytes/token at wiki 30K,
+i.e. 25% fewer tokens. Across the whole grid the ranking of the nine
+configurations is **unchanged** and the scale moves by 31-43%; representative
+cells: wiki 30K on wiki held-out 10.183 → 13.468 (+32.3%), mixed 120K on
+IndicCorp held-out 11.866 → 16.944 (+42.8%).
+
+Keeping the ranking intact is worth stating plainly: it means the three findings
+below were conclusions about the *corpus*, not about the bug. But each of their
+figures had to be recomputed, and one of them changed shape.
+
 Three findings, one of which overturns this section's original recommendation.
 
 **1. Domain skew is real and asymmetric.** At 120K merges the wiki model loses
-6.1% on IndicCorp (11.095 vs 10.914 for mixed), and the IndicCorp model loses
-3.3% on wiki. Wiki is the better general-purpose Tamil corpus: it is
-homogeneous, so its frequent n-grams are core orthography that transfers.
+9.5% on IndicCorp (15.330 vs 16.944 for mixed), and the IndicCorp model loses
+2.5% on wiki (14.829 vs 15.212). Wiki is the better general-purpose Tamil corpus:
+it is homogeneous, so its frequent n-grams are core orthography that transfers.
 IndicCorp is diverse news/web prose, so its top merges are more topic-bound.
+The asymmetry got *sharper* with the fix (9.5% vs 6.1%), so this finding is
+stronger than it was, not weaker.
 
 **2. Volume is irrelevant; diversity is what costs.** A wiki-only model trained
 on the same 25 MB repeated 8 times (202 MB) produces a **byte-identical** model:
-10.183 / 10.280, to the last digit. The trainer keys on unique words, so
-upsampling scales frequencies uniformly. This rules out "we just need more data"
-as an explanation for anything in this table.
+13.468 / 13.449, to the last digit — re-verified against the fixed trainer, same
+identical merge-list hash. The trainer keys on unique words, so upsampling scales
+frequencies uniformly. This rules out "we just need more data" as an explanation
+for anything in this table.
 
 **3. The mix is only worth it at a large merge budget — the opposite of this
-section's advice.** At 30K the mixed model is dominated: it loses to wiki-only
-on wiki (10.005 vs 10.183) and ties IndicCorp-only on IndicCorp (10.948 vs
-10.916). The extra vocabulary diversity dilutes a small merge budget. At 120K the
-same mix **wins on both domains**. The original section recommended a mix with
-no mention of budget, which would have been the wrong call for a 32K model.
+section's advice, but weaker than it looked.** At 30K the mixed model loses to
+wiki-only on wiki (13.138 vs 13.468, -2.5%) and ties IndicCorp-only on IndicCorp
+(14.729 vs 14.747). The extra vocabulary diversity dilutes a small merge budget.
+At 120K the same mix **matches** the best specialist on each domain — 15.212 vs
+15.149 on wiki and 16.944 vs 16.952 on IndicCorp, i.e. within 0.4%.
+
+The corrected measurement is a **tie at 120K, not a win**. The previous table
+showed mixed ahead on both domains (10.914 vs 10.895, 11.866 vs 11.813), but
+those margins were 0.2-0.5% and the corrected ones are 0.4% and -0.05%, so the
+honest reading is parity either way. What survives unchanged is the direction:
+the mix is the right choice at 120K and the wrong one at 30K. The original
+section recommended a mix with no mention of budget, which would have been the
+wrong call for a 32K model.
 
 ### Cost: throughput at large vocab
 
@@ -280,6 +366,13 @@ no mention of budget, which would have been the wrong call for a 32K model.
 | mixed | 120K | 121,934 | 6.9 | 7.6 |
 
 Going 30K → 120K buys 7-9% compression and costs **2.4x throughput**.
+
+**The absolute numbers in this table no longer reproduce, and it is not the
+trainer fix.** Commit `60a4855` ("index merge rules by first token in csr layout
+instead of hashing the pair", 10:31) implemented the recommendation this
+subsection ends with, and it landed *after* these rows were taken. Re-measured
+today with the current binary, the same pre-fix 120K model runs at **27.1 MB/s,
+not 5.5** — a 5x correction that no compression change can explain.
 
 **Where that cost is.** Stripping the merge list and re-timing isolates it:
 
@@ -295,16 +388,41 @@ costs 2.4x, and `profile_encode` confirms the pretokenizer is unchanged
 (18.6 bytes/chunk in both). So the cost is the `pair_to_merge` hash table itself:
 at 120K entries it no longer fits in cache and every pair lookup is a miss.
 
-**This corrects the Phase 3 conclusion.** The rescan is indeed cheap, but at
-large vocab the *lookup* is not. The upgrade path for Phase 3 is a flat or
-indexed pair table, not a linked list with a heap.
+**This corrected the Phase 3 conclusion, and Phase 3 then fixed it.** The rescan
+is indeed cheap, but at large vocab the *lookup* was not, and the upgrade path
+was a flat or indexed pair table rather than a linked list with a heap. That
+shipped as `60a4855`; the section was never updated to say so.
+
+Re-measured on the corrected models, same binary, best of three:
+
+| Model | Merges | Vocab | wiki MB/s | IndicCorp MB/s |
+|---|---:|---:|---:|---:|
+| wiki | 30K | 31,793 | 26.5 | 28.0 |
+| IndicCorp | 30K | 32,218 | 26.3 | 26.4 |
+| mixed | 30K | 32,462 | 26.6 | 25.5 |
+| wiki | 120K | 121,793 | 23.6 | 24.9 |
+| IndicCorp | 120K | 122,218 | 22.9 | 23.9 |
+| mixed | 120K | 122,462 | 23.4 | 24.1 |
+
+**30K → 120K now costs ~12% throughput, not 2.4x**, while buying 13-26%
+compression. The large-vocab penalty this subsection was written about is gone,
+and the trade it warned against is now clearly worth taking.
 
 ### Recommended default
 
-**30K merges on cleaned wiki** for interactive work: 17 MB/s and 10.18 bytes/token,
-and it is within 1% of the best possible on IndicCorp anyway. **120K mixed** when
-sequence length matters more than latency — it is the best model on both
-domains, and its throughput problem is a known, isolated, fixable one.
+**120K merges on the mixed corpus.** It matches the best specialist on both
+domains (15.212 wiki / 16.944 IndicCorp), which is 13% ahead of 30K wiki on wiki
+held-out and 26% ahead on IndicCorp, and after the CSR change it costs only ~12%
+throughput (23.4 vs 26.5 MB/s).
+
+This **reverses** the previous recommendation, which said 30K wiki for interactive
+work and treated 120K as a specialist option carrying a known throughput problem.
+Both halves of that reasoning are now wrong: the throughput problem is fixed, and
+30K wiki is no longer within 1% of the best model on IndicCorp (13.449 vs 16.944,
+which is 26%).
+
+**30K merges on cleaned wiki** is still the pick when latency or artifact size
+matters more than sequence length: 26.5 MB/s and 13.47 bytes/token.
 
 ### Not done
 
@@ -315,22 +433,98 @@ corpora are still unfetched. Publishing to Hugging Face needs repo credentials.
 
 ## 5. Architectural Evolution: Unigram LM vs. Greedy BPE
 
-### Why Unigram might win for Tamil
+### The argument this section was built on
 
 - **Greedy BPE** merges pairs strictly by local frequency. In agglutinative
   languages, frequent character bigrams can override true morpheme boundaries.
 - **Unigram Language Model** (Gemma, SentencePiece, T5) starts from a large
   candidate vocabulary and prunes it by EM on global corpus likelihood.
 - Studies on Indic/Dravidian languages report 5–15% better compression than BPE
-  at equal vocab size.
+  at equal vocab size. **This figure was never sourced, and it does not
+  reproduce.** The measured value is 0.6% — see below.
 
-### Why not started
+### Result: 0.6%, so we are not building it
 
-**The trainer is built around a merge list, and that merge list is the export
-format.** `export_hf` writes `merges.txt` and an HF `BPE` model. A Unigram mode
-is therefore a second trainer plus a second export path, not a flag on the
-existing one. It should be a measured A/B against the current BPE at fixed vocab
-size, on a held-out multi-domain set — which is what Section 4 is now producing.
+`scripts/spm_ab.py` trains SentencePiece `unigram` and `bpe` on the same corpus
+at the same vocabulary, then scores both against ours. SentencePiece is the
+reference implementation here rather than a hand-rolled one; see "Rejected"
+below for the cost of getting that wrong.
+
+32K vocab, trained on `data/wiki/train.txt`, `byte_fallback=True`,
+`character_coverage=1.0`, identity normalization, same seed size, held-out
+splits:
+
+| model | wiki held-out | IndicCorp held-out |
+|---|---:|---:|
+| sentencepiece unigram | 13.933 (1.70 tok/word) | 13.803 (1.79) |
+| sentencepiece bpe | 13.844 (1.71) | 13.711 (1.81) |
+| ours (bpe, `v3_wiki_30000`) | 13.468 (1.76) | 13.422 (1.84) |
+
+The wiki column is the whole held-out file. The IndicCorp column is the first
+6 MB of it, which is `spm_ab.py`'s default cap — all three models see the same
+text so the comparison holds, but it is a slightly different subset from
+Section 4's full-file 13.449 for our model. An earlier run of this table showed
+ours at 13.525 because the harness rebuilt bytes from `score.rs`'s MB column,
+which is printed to one decimal; see the summary table.
+
+**Unigram beats BPE by 0.64% on wiki and 0.67% on IndicCorp.** Two consequences,
+and the second is the useful one:
+
+1. **Do not build a Unigram trainer.** 0.6% does not pay for a second trainer and
+a second export path, which is what this section always said it would cost.
+2. **The gap worth closing is in our own BPE, not in the objective.** Ours is
+**2.8% behind SentencePiece's BPE** (13.844 vs 13.468) using the *same* greedy
+algorithm on the *same* corpus — larger than the 0.6% Unigram would buy, and
+fixable in the existing trainer rather than by a rewrite. That is exactly where
+the two defects below were found.
+
+Scope, stated plainly: this measures compression only. The usual arguments for
+Unigram are morphological alignment and downstream model quality, and neither is
+measurable without training a model, so neither was tested.
+
+### Rejected: a hand-rolled Unigram trainer
+
+A `unigram.rs` was written and deleted before it was ever committed. It reached
+**5.579 bytes/token** on wiki held-out against a BPE measuring 10.156 — worse
+than the baseline it was meant to beat, by 1.8x. The reasons were recorded in
+the session log and are worth keeping:
+
+- It used **hard Viterbi counts** in the E-step. SentencePiece uses
+  **forward-backward marginals** (`Lattice::PopulateMarginal`).
+- It **pruned by raw frequency**. SentencePiece scores each piece by the
+  likelihood actually lost if that piece is removed, i.e. an approximate loss
+  `F * (logprob_sp - logprob_alt)` per piece, with pieces that have no second-best
+  segmentation kept unconditionally (`unigram_model_trainer.cc`).
+
+Frequency pruning keeps the short pieces and drops the long ones, so the model
+collapsed toward characters: 26.6% of emitted tokens were single characters, and
+Viterbi preferred `'க'` at log p -1.8 over a whole word at -12. The 1.8x deficit
+was the implementation, not the objective.
+
+**The lesson to carry forward:** do not implement a reference algorithm without
+an oracle. The same corpus scored through SentencePiece would have shown the gap
+in minutes, and it is what eventually settled the question.
+
+### Found while running this A/B: two trainer defects
+
+The A/B needed our BPE as a baseline, and the baseline was 36% behind
+SentencePiece's BPE. That gap was not the objective and not the corpus:
+
+1. **The merge heap dropped stale entries.** When a pair's frequency fell, its
+   heap entry still held the old count. The pop loop discarded such entries
+   rather than re-pushing them with the corrected count, and since only pairs
+   touching the newly merged token were ever re-pushed, a discarded pair was gone
+   for good. The heap pops the *highest* counts first, so the pairs it discarded
+   were exactly the frequent ones it should have merged. **10.156 → 13.468
+   bytes/token** (25% fewer tokens) at 30K, and 44,642 corrections over 30,000
+   merges. See `trainer.rs` and the brute-force oracle in `tests/lib.rs`.
+2. **Training was not reproducible.** Token ids are minted while walking the
+   unique-word map, and the merge tie-break compares packed ids, so iterating an
+   `AHashMap` made the model depend on ahash's per-process seed. Two runs on one
+   corpus produced different merge lists. Fixed by sorting before assigning ids.
+
+Both shipped with regression tests, and both tests were confirmed to fail when
+the defect is reintroduced.
 
 ---
 
@@ -358,7 +552,7 @@ size, on a held-out multi-domain set — which is what Section 4 is now producin
 - [x] `bench.rs`, `profile_encode.rs`, `score.rs`
 - [ ] Doubly linked list + heap — **rejected**: 4.9 symbols/chunk makes the rescan cheap
 - [ ] Criterion benches — **rejected**: covered without a new dependency
-- [ ] Flat/indexed pair table — **re-scoped to large vocab**: 2.4x cost at 120K merges, see Section 4
+- [x] Flat/indexed pair table — shipped as `60a4855` (first-token CSR layout); the 2.4x cost at 120K merges it targeted is gone, see Section 4
 
 ### Phase 4: Ecosystem Compatibility — done
 - [x] GPT-2 byte-to-unicode table, pinned by a test
@@ -366,13 +560,14 @@ size, on a held-out multi-domain set — which is what Section 4 is now producin
 - [x] Export reproduces our pretokenizer (`Split`) and base clusters (291 promotion merges)
 - [x] `verify_hf_export.py`: 99.4-99.7% ID agreement, remainder fully categorised
 
-### Phase 5: Multi-domain training — done, next step is budget not corpus
+### Phase 5: Multi-domain training — done
 - [x] IndicCorpV2 Tamil fetched and prepared
-- [x] Compression by domain measured at 30K / 60K / 120K merges
-- [x] Mix recommendation overturned: only helps above ~100K merges
-- [ ] Fix the 120K merge-map cache cost (flat or indexed pair table)
+- [x] Compression by domain measured at 30K / 60K / 120K merges, corrected for the trainer fix
+- [x] Mix recommendation refined: matches the best specialist at 120K, loses 2.5% at 30K
+- [x] 120K merge-map cache cost fixed — first-token CSR layout, commit `60a4855`
+- [x] Unigram decided by measured A/B: **no** — 0.6% does not pay for a second trainer
+- [x] Trainer defects the A/B exposed fixed: 25% of the token count, two regression tests
 - [ ] Add `<0x00>..<0xFF>` byte-fallback to the export so HF stops dropping unvocab characters
-- [ ] Decide on Unigram with a measured A/B at fixed vocab size
 
 ---
 
@@ -388,10 +583,15 @@ size, on a held-out multi-domain set — which is what Section 4 is now producin
    Seen on lines containing Han characters (`艾青`) in an IndicCorp-trained model.
    Fix: add `<0x00>..<0xFF>` tokens, set `byte_fallback: true`, and prepend a
    `Replace` to the decoder. Affects ~0.04% of lines in the mixed corpus.
-3. **Throughput is chunk-bound at 30K, merge-lookup-bound at 120K.** ~1.7M chunks
-   per 32 MB means per-chunk fixed costs dominate at small vocab; past ~100K
-   merges the `pair_to_merge` hash table stops fitting in cache and costs 2.4x.
-   The two regimes need different fixes: the first wants fewer per-chunk costs,
-   the second wants a flatter pair table.
-4. **`model_max_length` must not go in `tokenizer.json`.** HF's schema rejects the
+3. **Throughput is chunk-bound at 30K; the 120K merge-lookup penalty is fixed.**
+   ~1.7M chunks per 32 MB means per-chunk fixed costs dominate at small vocab.
+   The 120K regime now costs ~12% rather than 2.4x, after `60a4855` replaced the
+   hashed pair lookup with a first-token-indexed table.
+4. **Line-initial words are a separate, unreachable form.** The pretokenizer
+   attaches one leading space per chunk, so the first word of every line trains as
+   `கணிதம்` while every other occurrence is ` கணிதம்`, and only the spaced form
+   earns merges. Measured cost of the split: ~1.0% of tokens. Closing it shifts
+   every chunk boundary and so invalidates every model, which is why it is
+   recorded rather than fixed — see Section 3.
+5. **`model_max_length` must not go in `tokenizer.json`.** HF's schema rejects the
    field and the file becomes unloadable; it belongs in `tokenizer_config.json`.

@@ -199,7 +199,15 @@ impl OptimizedBPETrainer {
             word_freqs_temp.len()
         );
 
-        for (tokens, freq) in word_freqs_temp {
+        // Sort before assigning IDs. Iterating the hash map directly would
+        // mint `next_token_id` in hash order, and since the merge tie-break
+        // compares packed ids, two runs on the same corpus would produce
+        // different models. Everything downstream already sorts for exactly
+        // this reason; this is the one place that did not.
+        let mut unique_words: Vec<(Vec<String>, u32)> = word_freqs_temp.into_iter().collect();
+        unique_words.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for (tokens, freq) in unique_words {
             let token_ids = self.convert_to_ids(&tokens);
             let word_id = self.words.len();
 
@@ -327,13 +335,26 @@ impl OptimizedBPETrainer {
         for merge_iteration in 0..num_merges {
             let merge_start = Instant::now();
 
-            // Lazy stale validation
+            // Lazy stale validation.
+            //
+            // A stale entry must be re-pushed with its corrected count, not
+            // dropped. Frequencies only ever fall for pairs that do not touch
+            // the newly merged token, and `new_pairs_to_add` re-pushes only
+            // pairs that DO touch it — so a discarded entry is a pair the
+            // trainer can never see again. Since the heap pops the highest
+            // count first, the entries that go stale at the top are exactly the
+            // frequent pairs, and dropping them makes the trainer spend merges
+            // on second-best candidates.
             let best_pair_opt = loop {
                 if let Some(entry) = self.pair_heap.pop() {
                     if let Some(&current_freq) = self.pair_freq.get(&entry.key) {
                         if current_freq == entry.count {
                             break Some(entry);
                         }
+                        self.pair_heap.push(HeapEntry {
+                            key: entry.key,
+                            count: current_freq,
+                        });
                     }
                 } else {
                     break None;

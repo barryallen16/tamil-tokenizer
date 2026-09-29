@@ -9,6 +9,10 @@ mod tests {
         FastBPEEncoder::new(vocab).expect("Failed to create test encoder")
     }
 
+    fn base_vocab() -> ahash::AHashMap<String, u32> {
+        TamilTokenizer::new().vocab.into_iter().collect()
+    }
+
     // === TamilTokenizer (6 tests) ===
 
     #[test]
@@ -582,6 +586,210 @@ mod tests {
             "expected a meaningful sample, got {checked} lines"
         );
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    // === Trainer correctness (2 tests) ===
+
+    /// Segment a chunk into base symbols exactly as the trainer does:
+    /// longest-first over 4/3/2-character clusters, then a single character.
+    fn segment(clusters: &ahash::AHashMap<String, u32>, text: &str) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            let mut matched = false;
+            for len in (2..=4).rev() {
+                if !matched && i + len <= chars.len() {
+                    let cluster: String = chars[i..i + len].iter().collect();
+                    if clusters.contains_key(&cluster) {
+                        out.push(cluster);
+                        i += len;
+                        matched = true;
+                    }
+                }
+            }
+            if !matched {
+                out.push(chars[i].to_string());
+                i += 1;
+            }
+        }
+        out
+    }
+
+    #[inline]
+    fn pack_pair(a: u32, b: u32) -> u64 {
+        ((a as u64) << 32) | (b as u64)
+    }
+
+    fn train_once(
+        base: ahash::AHashMap<String, u32>,
+        path: &str,
+        merges: usize,
+    ) -> (Vec<(String, String)>, ahash::AHashMap<String, u32>) {
+        let mut trainer = tamil_tokenizer::OptimizedBPETrainer::new(base);
+        trainer
+            .initialize_from_corpus(path)
+            .expect("corpus should load");
+        trainer.train(merges);
+        (trainer.merges().to_vec(), trainer.get_final_vocab())
+    }
+
+    /// Reference greedy BPE, recomputed from scratch at every step.
+    ///
+    /// The real trainer keeps pair counts incrementally and picks the maximum
+    /// from a heap. A bug in that bookkeeping is invisible from the outside:
+    /// training still finishes, the model still round-trips, and only the
+    /// compression silently suffers. The failure this exists to catch is the
+    /// lazy heap dropping a stale entry instead of re-pushing it with its
+    /// corrected count, which removes frequent pairs from consideration for
+    /// good and cost 25% of bytes/token at 30K merges when it was live.
+    ///
+    /// Ties break on the packed key, smallest first, matching `HeapEntry::cmp`.
+    /// Ids are assigned the way `OptimizedBPETrainer` assigns them: base
+    /// vocabulary in lexicographic order, then unknown symbols minted while
+    /// walking the unique words in sorted order, then one id per merge.
+    fn brute_force_merges(
+        base: &ahash::AHashMap<String, u32>,
+        corpus: &str,
+        n_merges: usize,
+    ) -> Vec<(String, String)> {
+        let pretok = TamilPretokenizer::new();
+        let mut freq: std::collections::HashMap<Vec<String>, u64> =
+            std::collections::HashMap::new();
+        for line in corpus.lines() {
+            for chunk in pretok.pretokenize(line) {
+                *freq.entry(segment(base, chunk)).or_insert(0) += 1;
+            }
+        }
+
+        let mut sorted: Vec<&String> = base.keys().collect();
+        sorted.sort();
+        let mut id_of: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut name_of: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        for (i, token) in sorted.iter().enumerate() {
+            id_of.insert((*token).clone(), i as u32);
+            name_of.insert(i as u32, (*token).clone());
+        }
+        let mut next_id = sorted.len() as u32;
+
+        let mut entries: Vec<(Vec<String>, u64)> = freq.into_iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut words: Vec<(Vec<u32>, u64)> = Vec::with_capacity(entries.len());
+        for (tokens, f) in entries {
+            let mut ids = Vec::with_capacity(tokens.len());
+            for token in tokens {
+                let id = match id_of.get(&token) {
+                    Some(&id) => id,
+                    None => {
+                        let id = next_id;
+                        next_id += 1;
+                        id_of.insert(token.clone(), id);
+                        name_of.insert(id, token);
+                        id
+                    }
+                };
+                ids.push(id);
+            }
+            words.push((ids, f));
+        }
+
+        let mut merges = Vec::new();
+        for _ in 0..n_merges {
+            let mut counts: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+            for (tokens, f) in &words {
+                for pair in tokens.windows(2) {
+                    *counts.entry(pack_pair(pair[0], pair[1])).or_insert(0) += *f;
+                }
+            }
+
+            let mut best: Option<(u64, u64)> = None;
+            for (&key, &count) in &counts {
+                match best {
+                    None => best = Some((key, count)),
+                    Some((best_key, best_count)) => {
+                        if count > best_count || (count == best_count && key < best_key) {
+                            best = Some((key, count));
+                        }
+                    }
+                }
+            }
+            let Some((best_key, _)) = best else { break };
+
+            let a = (best_key >> 32) as u32;
+            let b = (best_key & 0xFFFF_FFFF) as u32;
+            merges.push((name_of[&a].clone(), name_of[&b].clone()));
+            let merged = format!("{}{}", name_of[&a], name_of[&b]);
+            let new_id = next_id;
+            next_id += 1;
+            name_of.insert(new_id, merged);
+
+            for (tokens, _) in words.iter_mut() {
+                let mut out = Vec::with_capacity(tokens.len());
+                let mut i = 0;
+                while i < tokens.len() {
+                    if i + 1 < tokens.len() && tokens[i] == a && tokens[i + 1] == b {
+                        out.push(new_id);
+                        i += 2;
+                    } else {
+                        out.push(tokens[i]);
+                        i += 1;
+                    }
+                }
+                *tokens = out;
+            }
+        }
+        merges
+    }
+
+    /// Corpus with conjunct-plus-matra words (`மற்றும்`, `தமிழ்நாட்டில்`). Those
+    /// leave a vowel sign standing alone, which the base vocabulary has no token
+    /// for, so the trainer mints ids for them mid-training.
+    const REPRO_CORPUS: &str = "\
+மற்றும் ஒரு நாடு தமிழ்
+தமிழ்நாடு மற்றும் ஒரு மொழி
+பற்றி மற்றும் இருந்து ஒரு
+தமிழ்நாட்டில் மற்றும் பற்றிய
+இருந்து தமிழ்நாட்டில் மற்றும்
+ஒரு பற்றி மற்றும் இருந்து
+";
+
+    #[test]
+    fn trainer_matches_brute_force_greedy_bpe() {
+        // The tracked sample corpus, not a synthetic one. A stale heap entry
+        // only has to be reconciled when a pair loses *part* of its count, which
+        // needs that pair to occur in several distinct words. Twelve repeated
+        // lines drop counts straight to zero instead (measured: 1 stale entry
+        // over 150 merges), and the branch this test exists to cover is never
+        // reached. The sample corpus reaches it ~124 times.
+        const MERGES: usize = 150;
+        let corpus = std::fs::read_to_string(CORPUS).expect("the sample corpus is tracked in git");
+
+        let expected = brute_force_merges(&base_vocab(), &corpus, MERGES);
+        let (actual, _) = train_once(base_vocab(), CORPUS, MERGES);
+
+        assert_eq!(
+            actual, expected,
+            "incremental trainer diverged from greedy BPE"
+        );
+    }
+
+    /// Two runs over the same corpus must produce the same model.
+    ///
+    /// Ids are minted while walking the unique-word map, and the merge tie-break
+    /// compares packed ids, so iterating a hash map in hash order makes the
+    /// model depend on the seed ahash picked for that process.
+    #[test]
+    fn training_is_reproducible() {
+        let path = std::env::temp_dir().join("tamil_tokenizer_repro.txt");
+        std::fs::write(&path, REPRO_CORPUS).expect("write corpus");
+        let path = path.to_str().expect("utf-8 temp path");
+
+        let (merges_a, vocab_a) = train_once(base_vocab(), path, 40);
+        let (merges_b, vocab_b) = train_once(base_vocab(), path, 40);
+
+        assert_eq!(vocab_a, vocab_b, "token ids differ between runs");
+        assert_eq!(merges_a, merges_b, "merge order differs between runs");
         let _ = std::fs::remove_file(path);
     }
 }

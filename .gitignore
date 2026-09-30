@@ -29,6 +29,7 @@ Thumbs.db
 
 # Hugging Face upload artifacts
 hf_model_card.md
+hf_export/
 
 # Model-comparison write-ups; local scratch, not part of the project
 analysis/

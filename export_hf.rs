@@ -18,12 +18,22 @@ use tamil_tokenizer::{TamilPretokenizer, TamilTokenizer, TokenizerResult as Resu
 ///    merges that build each such token from its characters, and appends any
 ///    character the vocab lacks so HF can represent the input at all.
 ///
-/// Known limit: under GPT-2's byte table, 162 byte-stand-in chars are also
-/// ordinary Latin-1 text (`²`, `é`). Our encoder routes those through the byte
-/// fallback and emits two tokens; HF, which sees raw text here, matches the
-/// stand-in and emits one. It affects roughly 0.2% of Tamil lines. Matching it
-/// would mean byte-mapping in a pretokenizer, which then breaks every raw-text
-/// merge above.
+/// Known limit: ID parity with our encoder is **79.2%**, not the 99.4-99.7%
+/// this file's header used to claim. The cause is structural, not a data bug —
+/// all 120,000 learned merges survive the export (verified), so nothing is lost
+/// here. It is that HF's `BPE` model always starts from individual characters,
+/// while `FastBPEEncoder` starts from the 1,135 base clusters and only then
+/// applies merges by rank. The same merge list applied to different starting
+/// symbol sequences produces different segmentations: on ` வள்ளச்சி` our
+/// encoder yields one token and HF yields ` வள்ள` + `ச்சি`. The promotion
+/// merges below only partly bridge this. Registering the base clusters as
+/// `added_tokens` instead is worse, not better: HF extracts added tokens before
+/// the BPE model runs, so the model never fires and output collapses to
+/// characters (measured: 0% agreement). HF `BPE` has no seed-symbol concept, so
+/// this export is a lossy approximation of our encoder, not an equivalent.
+///
+/// Round-trip fidelity is 100% and is the property to hold this file to; see
+/// `scripts/verify_hf_export.py`, which reports both numbers separately.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -184,18 +194,14 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
     let pretok = TamilPretokenizer::new();
     let pattern = pretok.pattern().to_string();
 
-    // HF ships a ByteFallback decoder that turns <0xNN> back into the byte
-    // char; ByteLevel then maps byte chars to raw bytes. One entry instead of
-    // 256 Replace rules, and it cannot drift from the token names.
-    let decoders = vec![
-        json!({ "type": "ByteFallback" }),
-        json!({
-            "type": "ByteLevel",
-            "add_prefix_space": false,
-            "trim_offsets": true,
-            "use_regex": true,
-        }),
-    ];
+    // ByteFallback alone, and `ByteLevel` must NOT follow it.
+    //
+    // ByteFallback assembles `<0xNN>` back into bytes and returns them as a
+    // UTF-8 string. ByteLevel then re-applies the GPT-2 table to whatever came
+    // out, so a decoded `é` (U+00E9, itself a GPT-2 stand-in for byte 0xE9) is
+    // turned back into the raw byte 0xE9 and decodes to U+FFFD. Measured on
+    // v3_wiki_30000: `café ñ ÿ` came back as `caf<?><?> <?><?>`.
+    let decoders = vec![json!({ "type": "ByteFallback" })];
 
     let hf = json!({
         "version": "1.0",

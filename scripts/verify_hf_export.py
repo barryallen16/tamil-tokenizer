@@ -8,6 +8,9 @@ Build `encode_lines` first (cargo build --release --bin encode_lines) and
 `pip install tokenizers`. Reports both ID agreement and decode fidelity, which
 catch different failures: byte-table drift breaks every line, a pretokenizer
 mismatch breaks some, and a decoder mismatch breaks round-trip only.
+
+Expected on a healthy export: decode ok 100%, ids match ~79%. ID agreement is
+capped below 100% by design — see the header of `export_hf.rs`.
 """
 import json
 import subprocess
@@ -62,9 +65,10 @@ def main():
 
     if agree < total:
         print(
-            '\nDisagreement is expected on lines containing Latin-1 characters'
-            '\nthat are byte-stand-ins under GPT-2\'s table (², é, ñ): ours'
-            '\nemits bytes, HF emits the stand-in. About 0.2% of Tamil lines.'
+            '\nExpected: ID agreement is ~79%, not ~100%. HF BPE starts from'
+            '\ncharacters, ours starts from the 1,135 base clusters, so the same'
+            '\nmerge list yields different segmentations. Decode fidelity is the'
+            '\nnumber to hold at 100%. See the header of export_hf.rs.'
         )
 
     # Known and accepted: the Latin-1 stand-in case above. Anything else is a
@@ -106,9 +110,9 @@ def main():
 
     print(f'\nexplained: {standin} Latin-1 stand-in, {unvocab} unvocab characters')
     if unvocab:
-        print('  Unvocab characters are DROPPED by HF BPE (no byte fallback).')
-        print('  Fix if it matters: add <0x00>..<0xFF> tokens, set byte_fallback')
-        print('  true, and prepend a Replace to the decoder mapping them back.')
+        print('  Unvocab characters fell through to HF byte fallback (<0xNN>).')
+        print('  Our ids for those bytes are the base-vocab stand-in chars, so')
+        print('  the token COUNT matches but the ids differ by design.')
 
     if unexplained:
         print(f'\n{len(unexplained)} lines differ for an unknown reason')

@@ -121,22 +121,43 @@ fallback was already working; the bug was `ByteLevel` running *after*
 
 ---
 
-## 3. Measure Vocabulary Utilization at 120K
-**File:** New script `scripts/vocab_utilization.py`  
-**Time:** 30 minutes  
-**Why:** Section 7.5 Item 4 — at 121,793 tokens, unknown how much of the tail earns its keep. If >30% unused, 120K default wastes throughput.
+## 3. Measure Vocabulary Utilization at 120K — DONE
+**File:** `scripts/vocab_utilization.py` (new)
+**Result:** `v3_mixed_120000`, scored on 70,000 held-out lines (wiki + IndicCorp).
 
-### Steps
-1. Write script that loads a trained tokenizer + held-out corpus, counts occurrences per token.
-2. Run on `v3_mixed_120000.json` against both held-out splits.
-3. Report:
-   - % tokens used 0 times
-   - % tokens used 1 time
-   - % tokens used >10 times
-   - Top 20 most/least used tokens
+| | count | share |
+|---|---:|---:|
+| never used | 28,022 | **22.9%** |
+| used exactly once | 24,542 | 20.0% |
+| used ≤ 10x | 78,254 | 63.9% |
+| used > 10x | 44,208 | 36.1% |
 
-### Acceptance
-- Utilization report printed; decision recorded: keep 120K / drop to 60K / re-train with min_frequency
+Merge rank is the sharper axis — merges are ordered, so rank is meaningful:
+
+| merge ranks | tokens used | share of all emitted tokens |
+|---|---:|---:|
+| 0–30K | 96.4% | **66.9%** |
+| 30K–60K | 88.3% | 7.9% |
+| 60K–90K | 71.1% | 3.9% |
+| 90K–120K | 55.3% | **2.4%** |
+
+**The last 30K merges — a quarter of the merge budget — carry 2.4% of emitted
+tokens.** Smallest vocab retaining 99.9% of emissions: 93,214.
+
+Unused tokens are dominated by markup and Latin residue (`' !!!'`, `' "||'`,
+`' >'`, `' BJP'`, `' ASVAB'`), which is the Section 3 markup problem still
+visible at 120K.
+
+**Caveat, stated so this is not over-read:** "unused on 70K held-out lines" is
+not "useless". A 122K vocab exists partly to cover rare-but-legitimate input
+(`' BJP'` may be rare and still correct). This does not argue for shrinking the
+vocab; it argues that the 120K recommendation is carrying ~24,000 tokens that do
+no work on in-domain text, so the compression gain attributed to 120K should be
+re-read as a gain concentrated in the first 60–90K.
+
+### Acceptance — met
+- Utilization report printed; decision recorded above. **No change to the 120K
+  default**, but the justification is now narrower than the roadmap claims.
 
 ---
 

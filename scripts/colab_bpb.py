@@ -48,6 +48,26 @@ def load_ours(path):
     """Our export is a `tokenizers` BPE file, not a HF transformers one."""
     from tokenizers import Tokenizer
 
+    # A tokenizer.json parse failure on our own files is almost always the wrong
+    # file: the repo publishes `tamil_tokenizer_wiki.json` in the trainer's
+    # {vocab, merges, metadata} format, which is valid JSON but has no `model`
+    # key. tokenizers reports that as a bare syntax error, so name it here.
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = json.load(f)
+        if "model" not in head:
+            keys = ", ".join(list(head)[:4])
+            sys.exit(
+                f"{path} is in the trainer's format ({{{keys}}}, ...), not an HF\n"
+                f"tokenizer.json. Convert it first:\n"
+                f"  cargo run --release --bin export_hf -- {path} hf_export/out 512\n"
+                f"then pass hf_export/out/tokenizer.json instead.\n"
+                f"Colab has no Rust toolchain, so upload an already-exported\n"
+                f"tokenizer.json (see the repo's hf_export/ output)."
+            )
+    except json.JSONDecodeError:
+        pass  # let tokenizers produce its own error below
+
     class Shim:
         """Minimal interface so the same code path serves ours and the baselines."""
 

@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Bits-per-byte + fertility for our tokenizer against public baselines.
+
+Run on Colab T4 (16 GB). No training: bits-per-byte measures the *tokenizer*,
+not the model, so one fixed small LM scoring the same text four ways gives a
+paired, tokenizer-agnostic ranking. BPB = total NLL in nats / (ln2 * bytes).
+
+READ THIS BEFORE INTERPRETING
+----------------------------
+Our Rust encoder and our HF export do NOT tokenize identically. Measured:
+79.2% ID agreement, because FastBPEEncoder starts from 1,135 base clusters
+while HF's BPE model starts from individual characters. Our encoder emits
+longer tokens, so BPB measured on the export is *pessimistic* for us — it
+scores the artifact an HF user gets, not the encoder we benchmark internally.
+
+Run `score` locally on the same file and compare fertility. That gap is the
+finding, not noise.
+
+Usage (Colab):
+    !python colab_bpb.py --our /content/tamil_tokenizer.json \\
+                         --corpus /content/test.txt --mb 2
+
+    # or compare several corpora
+    !python colab_bpb.py --our /content/tamil_tokenizer.json \\
+                         --corpus /content/wiki_test.txt --corpus /content/ic_test.txt
+"""
+import argparse
+import json
+import math
+import os
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Tamil-capable, small enough for a T4. Qwen2.5 sees the most Tamil per
+# parameter of the sub-2B options, which matters because a model blind to Tamil
+# would rank tokenizers by noise.
+DEFAULT_LM = "Qwen/Qwen2.5-0.5B"
+
+BASELINES = {
+    "mBERT": "bert-base-multilingual-cased",
+    "Llama3": "meta-llama/Meta-Llama-3-8B",   # tokenizer only; gated on HF
+    "Qwen2.5": "Qwen/Qwen2.5-0.5B",          # tokenizer only
+}
+
+
+def load_ours(path):
+    """Our export is a `tokenizers` BPE file, not a HF transformers one."""
+    from tokenizers import Tokenizer
+
+    class Shim:
+        """Minimal interface so the same code path serves ours and the baselines."""
+
+        def __init__(self, t):
+            self.t = t
+
+        def encode(self, text):
+            return self.t.encode(text).ids
+
+        def id_to_piece(self, i):
+            return self.t.id_to_token(i)
+
+    return Shim(Tokenizer.from_file(path))
+
+
+def read_corpus(paths, mb):
+    limit = int(mb * 1024 * 1024)
+    out = []
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if len(line) < 20:
+                    continue
+                out.append(line)
+                if sum(len(x) for x in out) >= limit:
+                    break
+    text = "\n".join(out)
+    print(f"corpus: {len(text.encode('utf-8')) / 1e6:.2f} MB, {len(out):,} lines")
+    return text
+
+
+def fertility(tokenize, text, sample_lines=2000):
+    """tokens/word, whitespace-split to match score.rs. Cheap, CPU only."""
+    lines = text.split("\n")[:sample_lines]
+    toks = sum(len(tokenize(l)) for l in lines)
+    words = sum(len(l.split()) for l in lines)
+    return toks / max(words, 1)
+
+
+@torch.no_grad()
+def bits_per_byte(tokenize, text, model, device, max_len=2048, stride_log=20):
+    """Sum token NLL over the whole corpus, divide by ln(2) * bytes.
+
+    The byte denominator is shared across tokenizers, which is the whole point.
+    Never rebuild it from a rounded MB column.
+    """
+    n_bytes = len(text.encode("utf-8"))
+    total_nats = 0.0
+    total_tokens = 0
+
+    chunk = max_len * (1 << stride_log)
+    for start in range(0, len(text), chunk):
+        block = text[start:start + chunk]
+        ids = tokenize(block)
+        if not ids:
+            continue
+        for i in range(0, len(ids), max_len):
+            window = ids[i:i + max_len]
+            if len(window) < 2:
+                continue
+            t = torch.tensor([window], dtype=torch.long, device=device)
+            logits = model(t).logits.float()
+            # next-token prediction: position j predicts token j+1
+            nll = torch.nn.functional.cross_entropy(
+                logits[0, :-1, :], t[0, 1:], reduction="sum"
+            )
+            total_nats += nll.item()
+            total_tokens += len(window) - 1
+        if start and start % (chunk * 8) == 0:
+            print(f"    ...{start / len(text):.0%}", flush=True)
+
+    bpb = total_nats / (math.log(2) * n_bytes)
+    return bpb, total_tokens
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--our", required=True, help="our exported tokenizer.json")
+    ap.add_argument("--corpus", action="append", required=True)
+    ap.add_argument("--mb", type=float, default=2.0, help="MB per corpus")
+    ap.add_argument("--lm", default=DEFAULT_LM, help=f"scoring LM (default {DEFAULT_LM})")
+    ap.add_argument("--skip", action="append", default=[], help="baseline names to skip")
+    ap.add_argument("--out", default="bpb_results.json")
+    args = ap.parse_args()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"device: {device}", torch.cuda.get_device_name(0) if device == "cuda" else "")
+
+    tokenizers = {"ours (HF export)": load_ours(args.our)}
+    for name, repo in BASELINES.items():
+        if name in args.skip:
+            continue
+        try:
+            tokenizers[name] = AutoTokenizer.from_pretrained(repo)
+        except Exception as e:
+            print(f"  skip {name}: {type(e).__name__}: {str(e)[:90]}")
+    print(f"tokenizers: {list(tokenizers)}\n")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.lm, torch_dtype=torch.float16 if device == "cuda" else torch.float32
+    ).to(device).eval()
+    print(f"scoring LM: {args.lm} "
+          f"({sum(p.numel() for p in model.parameters()) / 1e9:.2f}B params)\n")
+
+    results = {}
+    for path in args.corpus:
+        text = read_corpus([path], args.mb)
+        name = os.path.basename(path)
+        print(f"\n=== {name} ===")
+        print(f"{'tokenizer':<20} {'tok/word':>9} {'bits/byte':>10} {'tokens':>12}")
+
+        results[name] = {}
+        for tname, tk in tokenizers.items():
+            fert = fertility(tk.encode, text)
+            bpb, ntok = bits_per_byte(tk.encode, text, model, device)
+            results[name][tname] = {"fertility": fert, "bpb": bpb, "tokens": ntok}
+            print(f"{tname:<20} {fert:>9.3f} {bpb:>10.4f} {ntok:>12,}")
+
+        best = min(results[name].items(), key=lambda kv: kv[1]['bpb'])
+        ours = results[name]['ours (HF export)']['bpb']
+        gap = 100 * (ours - best[1]['bpb']) / best[1]['bpb']
+        print(f"\n  best: {best[0]}  |  ours is {gap:+.1f}% vs best (lower bpb is better)")
+
+    with open(args.out, "w") as f:
+        json.dump({"lm": args.lm, "results": results}, f, indent=2)
+    print(f"\nwrote {args.out}")
+    print("\nCaveat: 'ours' is the HF export, which segments ~20% worse than the")
+    print("Rust encoder. Compare against a local `score` run on the same file.")
+
+
+if __name__ == "__main__":
+    main()

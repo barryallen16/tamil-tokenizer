@@ -179,19 +179,30 @@ re-read as a gain concentrated in the first 60–90K.
 
 ---
 
-## 5. Line-Initial Prefix Experiment (New Models Only)
-**Files:** `pretokenizer.rs` (optional), training script  
-**Time:** 1 day experiment  
-**Why:** Known Limit #4 — pretokenizer adds leading space to mid-line chunks only. Cost: ~1% more tokens. Fix for *new* models: prepend dummy prefix to every line before pretokenization (like SentencePiece `add_dummy_prefix`).
+## 5. Line-Initial Prefix Experiment (New Models Only) — SCRIPT WRITTEN, NOT RUN
+**File:** `scripts/prefix_ab.py` (new)
+**Why:** Known Limit #4 — pretokenizer adds leading space to mid-line chunks only. Cost: ~1% more tokens.
 
-### Steps
-1. Create training variant that prepends ` ` to every line in `initialize_from_corpus`.
-2. Train two 30K models on same corpus: current vs. dummy-prefix.
-3. Measure bytes/token on held-out.
-4. If gain >0.5%, adopt dummy prefix for all future training (document: invalidates old models).
+No Rust change is needed. The trainer reads a corpus file, so prepending one
+space to every training line makes it see only the spaced form — SentencePiece's
+`add_dummy_prefix`, in effect. Scoring stays on the **unprefixed** held-out
+split, because that is what real input looks like.
 
-### Acceptance
-- Measured delta recorded; decision: adopt / reject
+```
+cargo build --release --bin train --bin score
+python scripts/prefix_ab.py data/wiki/train.txt data/wiki/test.txt 30000
+```
+
+Trains both variants at the same merge count, prints bytes/token for each, and
+emits ADOPT/REJECT on a >0.5% threshold. Writes `result.json` to the workdir.
+
+Smoke-tested at 200 merges on the 5 KB sample corpus: both arms train, score,
+and report. **That number is not a result** — the smoke run scores on its own
+training file. A real run needs `data/wiki/train.txt` as input and
+`data/wiki/test.txt` as held-out.
+
+### Acceptance — pending the real run
+- Measured delta recorded; decision adopt / reject
 
 ---
 

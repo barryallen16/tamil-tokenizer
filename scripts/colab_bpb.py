@@ -109,20 +109,22 @@ def fertility(tokenize, text, sample_lines=2000):
 
 
 @torch.no_grad()
-def bits_per_byte(tokenize, text, model, device, max_len=2048, stride_log=20):
+def bits_per_byte(tokenize, text, model, device, max_len=2048, block_chars=1 << 16):
     """Sum token NLL over the whole corpus, divide by ln(2) * bytes.
 
     The byte denominator is shared across tokenizers, which is the whole point.
     Never rebuild it from a rounded MB column.
+
+    `block_chars` bounds the tokenize() call, not the model call: a byte-fallback
+    tokenizer turns 64K chars into ~500K ids, so this is a memory guard, and it
+    must be small. The model still sees `max_len` at a time.
     """
     n_bytes = len(text.encode("utf-8"))
     total_nats = 0.0
     total_tokens = 0
 
-    chunk = max_len * (1 << stride_log)
-    for start in range(0, len(text), chunk):
-        block = text[start:start + chunk]
-        ids = tokenize(block)
+    for start in range(0, len(text), block_chars):
+        ids = tokenize(text[start:start + block_chars])
         if not ids:
             continue
         for i in range(0, len(ids), max_len):
@@ -137,7 +139,7 @@ def bits_per_byte(tokenize, text, model, device, max_len=2048, stride_log=20):
             )
             total_nats += nll.item()
             total_tokens += len(window) - 1
-        if start and start % (chunk * 8) == 0:
+        if start and start % (block_chars * 64) == 0:
             print(f"    ...{start / len(text):.0%}", flush=True)
 
     bpb = total_nats / (math.log(2) * n_bytes)
@@ -178,6 +180,17 @@ def main():
         text = read_corpus([path], args.mb)
         name = os.path.basename(path)
         print(f"\n=== {name} ===")
+
+        # A tokenizer scored by the model that was TRAINED on it has a home
+        # advantage no other row can match: per-token predictions are calibrated
+        # to its own segmentation. That row is not a tokenizer comparison, it is
+        # a tautology, and it will "win" almost regardless of Tamil quality.
+        native = [t for t in tokenizers if t.lower().replace(".", "").replace(" ", "")
+                  in args.lm.lower().replace("-", "")]
+        if native:
+            print(f"  WARNING: scoring LM's own tokenizer in the set ({native}).")
+            print("  That row is not a fair comparison — see the note at the end.")
+
         print(f"{'tokenizer':<20} {'tok/word':>9} {'bits/byte':>10} {'tokens':>12}")
 
         results[name] = {}
@@ -195,8 +208,15 @@ def main():
     with open(args.out, "w") as f:
         json.dump({"lm": args.lm, "results": results}, f, indent=2)
     print(f"\nwrote {args.out}")
-    print("\nCaveat: 'ours' is the HF export, which segments ~20% worse than the")
-    print("Rust encoder. Compare against a local `score` run on the same file.")
+    print("\nTwo caveats that decide whether these numbers mean anything:")
+    print(" 1. Corpus. Raw MediaWiki dump is mostly ASCII markup (thumb|, {{cite")
+    print("    web}}, HTML), which general tokenizers handle far better than a")
+    print("    Tamil-specialised one. Score the CLEANED split, or ours is")
+    print("    penalised for the corpus rather than measured on it.")
+    print(" 2. Never compare against the scoring LM's own tokenizer. It was")
+    print("    trained on that segmentation and gets a home advantage.")
+    print(" 'ours' is the HF export, which segments ~1.7% worse than the Rust")
+    print(" encoder (1.565 vs 1.539 tok/word on cleaned wiki held-out).")
 
 
 if __name__ == "__main__":

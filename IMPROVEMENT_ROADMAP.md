@@ -27,6 +27,7 @@ kept alongside the corrected ones wherever they were the basis of a conclusion.
 | 4 | [Multi-Domain Training Corpus Scaling](#4-multi-domain-training-corpus-scaling) | measured; all figures corrected |
 | 5 | [Architectural Evolution: Unigram LM vs. Greedy BPE](#5-architectural-evolution-unigram-lm-vs-greedy-bpe) | done; Unigram rejected on measurement |
 | 6 | [Prioritized Implementation Checklist](#6-prioritized-implementation-checklist) | |
+| 7 | [Open Work](#7-open-work) | proposed, not measured |
 
 ## Summary of shipped changes
 
@@ -480,7 +481,15 @@ the two defects below were found.
 
 Scope, stated plainly: this measures compression only. The usual arguments for
 Unigram are morphological alignment and downstream model quality, and neither is
-measurable without training a model, so neither was tested.
+measurable without training a model, so neither was tested. That omission is not
+theoretical — [TamilTok](https://aclanthology.org/2026.dravidianlangtech-1.7/)
+(DravidianLangTech 2026) measured it on Tamil and found UnigramLM **consistently
+better than BPE and WordPiece on morphological alignment at every vocabulary size,
+with no fertility penalty**. So the correct reading of this section is narrower
+than "Unigram lost": on the one axis we measured, it wins by 0.6% and is not worth
+a second trainer; on the axis we did not measure, the Tamil-specific evidence
+favours it, and a morphology-aware vocabulary (Section 7.4) is one way to chase
+that without writing a Unigram trainer at all.
 
 ### Rejected: a hand-rolled Unigram trainer
 
@@ -595,3 +604,184 @@ the defect is reintroduced.
    recorded rather than fixed — see Section 3.
 5. **`model_max_length` must not go in `tokenizer.json`.** HF's schema rejects the
    field and the file becomes unloadable; it belongs in `tokenizer_config.json`.
+
+---
+
+## 7. Open Work
+
+Sections 1-6 record what shipped and what measurement killed. This section is a
+different kind of thing: **everything below is proposed, not measured.** Each
+item carries the source it came from and the measurement that would settle it
+instead of an effect size. Sources are external unless marked as ours.
+
+### 7.1 Finish what is already open
+
+| Item | Why | What settles it |
+|---|---|---|
+| Re-run `verify_hf_export.py` against `v3_*` | the 99.4-99.7% ID agreement was measured on `v2`, and the merge lists have since changed entirely, so the export path is **unverified for the models we now recommend** | agreement percentage on both held-out splits, remainder categorised, as before |
+| `<0x00>..<0xFF>` byte-fallback in the export | HF silently drops characters absent from the vocab; our encoder emits their UTF-8 bytes | round-trip an export on lines containing out-of-vocab scripts, and check the HF `added_tokens` decode bug ([tokenizers#1996](https://github.com/huggingface/tokenizers/issues/1996)) does not apply |
+| Publish an artifact for the new default | Section 4 recommends 120K mixed, but `output/` is gitignored so that recommendation exists only as prose | a named artifact plus the exact reproducible training command |
+| Hugging Face publication | blocked on repo credentials, unchanged | — |
+
+### 7.2 Evaluation: we have exactly one metric
+
+bytes/token is the only thing this document optimises, and the literature is
+explicit that it is not a reliable objective by itself:
+
+- **Minimising corpus token count does not reliably improve downstream
+  performance** (Schmidt et al. 2024).
+- **Rényi efficiency can be raised arbitrarily while degrading model quality**
+  (Cognetta et al. 2024), so "we win an intrinsic metric" is not evidence on its own.
+- **Fertility and parity are not reliably predictive** of downstream results
+  (Ali et al. 2024).
+
+Those three are quoted from TokEval's related work rather than read as primary
+sources; treat them as pointers, not as settled findings.
+
+[TokEval](https://arxiv.org/html/2608.18062v1) (Meister, EPFL, 2026) proposes a
+suite that goes past fertility and compression: UTF-8 character-boundary
+integrity, digit place-value alignment, line-break handling, and multilingual
+parity. Its controlled pretraining sweep found information-theoretic metrics
+predict language-model ability (Spearman |ρ| up to 0.80), while
+structure-sensitive metrics correlate with task accuracy.
+
+1. Adopt TokEval (`cimeister/tokenizer-intrinsic-evals`) and report its metrics
+   next to bytes/token. Report **fertility (tokens/word)** as the headline
+   number, because that is what Indic tokenizer papers publish.
+2. Add **MorphScore** ([Arnett & Bergen 2025](https://aclanthology.org/2025.coling-main.441/),
+   [`catherinearnett/morphscore`](https://github.com/catherinearnett/morphscore),
+   datasets for 22 languages in the paper, more in the repo since): it measures
+   how often token boundaries land on morpheme boundaries. Read the source before
+   treating it as a target, though, because that paper's own conclusion is the
+   opposite of what this item originally assumed. It finds **some** evidence that
+   tokenization quality explains the agglutinative-vs-fusional performance gap,
+   and **none for the role of morphological alignment**, attributing the gap
+   instead to training-data size once scaled by the "byte-premium". So use
+   MorphScore as a descriptive instrument — *how morphologically plausible are our
+   boundaries?* — and not as a proxy for downstream quality. Tamil boundary labels
+   come from TamilTok's **TamilMorph**, below.
+3. Stand up a **downstream smoke test**. [CHiPSAL 2026](https://aclanthology.org/2026.chipsal-1.19/)
+   uses Tamil news-title classification with a small BERT; anything comparable
+   would let a tokenizer change be checked for effect instead of assumed. For any
+   LM, report **bits-per-byte**, which is tokenizer-agnostic.
+4. **Benchmark against a general multilingual tokenizer.** **Measured** — see
+   the table below; this was the item the project existed to move and it had
+   never been run on our own splits. `scripts/colab_bpb.py` scores our export,
+   mBERT and Llama 3 against the same held-out text under one fixed LM
+   (Qwen2.5-0.5B), so the only variable is the tokenizer.
+
+   Scored on the **cleaned** wiki held-out split (20,000 lines, 5.76 MB),
+   32K-merge model:
+
+   | | tok/word | bits/byte |
+   |---|---:|---:|
+   | ours | **1.77** | **1.06** |
+   | mBERT | 3.74 | 2.16 |
+
+   **2.11x better on fertility, 51% lower bits-per-byte.** This pair is
+   trustworthy because neither tokenizer is the scoring model's own, so neither
+   row gets the home advantage a native tokenizer gets. mBERT's 3.74
+   tok/word independently corroborates the 3.64 TamilTok reports for it.
+
+   Corpus choice moved this result and would have flattered us if picked the
+   other way. On the raw MediaWiki dump ours scores 1.946 and mBERT 3.241,
+   because the dump is ~9% ASCII markup and mBERT handles ASCII cheaply. Clean
+   prose is the honest test, and it is where mBERT is *worse* (3.735).
+
+   Two things this does **not** say. It is the 32K-merge model, not the 120K
+   default Section 4 recommends, so it is a floor. And Llama 3 is gated while
+   `cl100k_base` and Sarvam are still unrun. A model's *own* tokenizer must
+   never appear in this table: Qwen2.5 scored its own segmentation at 0.77
+   bits/byte against our 1.15 in the first run, which is a property of the
+   training pair, not of Tamil tokenization.
+
+**Sanity check on the one number we do have.** Our fertility is 1.76 tok/word at
+30K and 1.56 at 120K. Published Tamil fertility for Indic-specialised tokenizers
+is 1.86 (VerChol, 32,991 vocab) and 1.9969 (Gnani). That puts us in the right
+range, but the test sets are entirely different, so this is a sanity check and
+not a win.
+
+### 7.3 Corpus
+
+**Deduplication.** Our pipeline has a cleaner and a Tamil-dominance gate but no
+dedup. The BharatGen tokenizer pipeline runs global deduplication as a standard
+step, and [Lee et al. 2022](https://aclanthology.org/2022.acl-long.577/)
+report that deduplicated models emit memorised text ~10x less often and need
+fewer training steps for the same accuracy. For a *tokenizer*
+specifically, non-uniform duplication distorts merge frequencies — the exact
+quantity the Section 5 heap bug corrupted.
+
+Be precise about what our own control already covers: the upsampled-wiki ×8 run
+gave a byte-identical model, which shows invariance to *uniform* scaling and says
+nothing about duplication, which is non-uniform by definition.
+
+**Corpus gaps.** Project Madurai (literature/poetry), government and legal open
+data, and technical corpora are still unfetched. Larger, and a scope decision
+rather than a gap: our corpus has incidental Latin text (markup remnants, proper
+nouns) but no *transliterated Tamil* as a represented variety. BharatGen notes
+that native scripts dominate formal text while "informal and digital
+communication increasingly employ Latin scripts" — so if the target is chat or
+social text rather than Wikipedia, this is the biggest untested item here.
+
+### 7.4 Design experiments the literature points at
+
+| Experiment | Source | Why it lands here |
+|---|---|---|
+| Split digits individually | [BharatGen](https://arxiv.org/html/2508.06533v1); Singh & Strouse 2024 measure ~20% arithmetic-accuracy swings from digit tokenization | our pretokenizer emits digit runs as one chunk (`(?:\p{N}\p{M}*)+`), so `1963` is a single token. Cheap A/B |
+| Separate diacritics/matras in pretokenization | BharatGen evaluated exactly this, trading token-to-word ratio against robustness to user diacritic errors | this is the question our syllable clusters answer the opposite way, and the `ும்` pathology — a token starting with a combining mark — arrived by accident, not decision |
+| Sandhi-aware tokenization | [Agathiyam](https://openreview.net/forum?id=r3ViBkH9ic) (ICLR 2026 submission, **unrefereed**; the PDF sits behind OpenReview's browser check, so its numbers could not be verified here); [BHARATI](https://arxiv.org/html/2607.23319v1) | Tamil sandhi means whitespace boundaries are not morpheme boundaries, and we only split whitespace |
+| Morphology-aware vocabulary | [TamilTok](https://aclanthology.org/2026.dravidianlangtech-1.7/) (DravidianLangTech 2026) puts explicit morpheme structure into tokenizer training and reports gains in alignment *and* downstream performance; MorphTok (Brahma et al. 2025) curated word sets; VerChol grammar-first reaches Tamil fertility 1.86 at 32,991 vocab | TamilTok's **TamilMorph** (480,000+ morphologically segmented word forms) supplies the boundary labels, and [ThamizhiMorph](https://github.com/sarves/thamizhi-morph) (open-source Tamil FST analyser/generator) can supply stems and affixes to seed the base vocab or constrain merges across morpheme boundaries |
+
+### 7.5 Vocabulary size and composition
+
+- The CHiPSAL 2026 comparison (WordPiece vs SentencePiece vs **BBPE**, 5.45 GB
+  Tamil corpus, news-title classification) found WordPiece and SentencePiece beat
+  BBPE on efficiency *and* accuracy, and that **raising vocabulary size helps
+  WordPiece and SentencePiece but not BBPE** — BBPE's zero OOV rate is paid for in
+  overfragmentation. Two readings for us: external support for keeping a
+  linguistic base vocabulary rather than pure bytes, and a prediction that our
+  30K→120K gains keep paying, unlike a pure byte-level model.
+- Sarvam-1 reports fertility of **1.4-2.1** across its 10 supported Indic
+  languages, framing the problem as **4-8 tokens per word for Indic scripts**
+  under general multilingual tokenizers, against 1.4 for English. That 1.4-2.1
+  band is the range to be judged against, and it is the same disparity 7.7
+  refers to.
+- Reserved tokens: BharatGen deliberately leaves many tokens unassigned "to
+  accommodate future expansion". We reserve 100. Worth an explicit decision
+  rather than an inherited default.
+- **Vocabulary utilisation is unmeasured.** At 121,793 tokens it is unknown how
+  much of the tail earns its keep. If most of it is inert, a smaller vocabulary
+  with better merges could match it at higher throughput.
+
+### 7.6 Harness hygiene
+
+Both defects in Section 5 were found by accident, while running an unrelated
+A/B. A third one is cheap to guard against:
+
+- The brute-force oracle runs at 150 merges against the 5 KB sample corpus. Run
+  it at several merge counts, alongside the determinism check, in CI rather than
+  by hand.
+- `spm_ab.py` is invoked manually and reuses unversioned `.model` files under
+  `--skip-train`, so a stale reference model would silently change the published
+  numbers.
+
+### 7.7 Why this is worth doing at all
+
+The "tokenization tax" literature reports encoding-length differences of **up to
+15x** between languages for the same text, with **over 4x** still present in
+character-level and byte-level models ([Petrov et al. 2023](https://arxiv.org/abs/2305.15425)),
+and the cost framing — API users in many languages are charged more while getting
+poorer results ([Ahia et al. 2023](https://arxiv.org/abs/2305.13707)) — treats
+this as a latency and access disparity rather than a neutral engineering choice;
+[Parity-Aware BPE](https://arxiv.org/abs/2508.04796) makes cross-lingual token
+parity its objective outright. Sizing our own position on that gradient is item 4
+above — and until it is run, the claim in this paragraph is inherited from other
+papers rather than earned here.
+
+Said plainly, because it is a real challenge to this project's premise: the most
+recent evidence on the mechanism is **not** supportive. Arnett & Bergen find the
+agglutinative performance gap is largely a training-data-size effect, not a
+tokenizer effect, and TamilTok's gains come from *training on* morphology rather
+than from compression. Both point the same way — the number that matters is a
+downstream one, and bytes/token is a proxy not yet shown to carry it in Tamil.
+That is the case for item 3 above, not against the tokenizer work.

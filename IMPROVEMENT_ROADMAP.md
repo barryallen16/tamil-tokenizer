@@ -15,6 +15,15 @@ were worth **25% of the token count** — the very quantity this document is abo
 — so every bytes/token figure below has been re-measured. Pre-fix numbers are
 kept alongside the corrected ones wherever they were the basis of a conclusion.
 
+A later audit found a second class of error: figures that were never
+re-measured because nobody re-ran them. The export's **99.4–99.7% ID agreement
+did not reproduce** (79.2% / 73.0%, and identical on `v2` and `v3`), and the
+Latin-1 defect described as a ~0.2% token-count nuisance was in fact **52%
+silent data corruption** on affected lines. Both are corrected in place, with
+the original claims struck rather than deleted, and the cause recorded as
+[Known Limit 6](#known-limits-carried-forward). Where a claim could not be
+reproduced, it says so.
+
 ---
 
 ## Table of Contents
@@ -43,7 +52,7 @@ kept alongside the corrected ones wherever they were the basis of a conclusion.
 | MediaWiki cleaner in `extract_wiki_fast.py` | ~25% of early merges were ASCII markup (`colo+r`, `j+pg`) | 127,889 → 111,956 lines; **8.31 → 10.76 bytes/token** at 30K merges |
 | GPT-2 byte table, exactly | ours differed from GPT-2 on 95 bytes; HF hardcodes GPT-2's | exports stop producing silently wrong IDs |
 | Stand-in guard excludes all of byte space | GPT-2 maps bytes 161-255 to Latin-1, so `Ã` was both a byte token and real text | Latin-1 text no longer decodes to mojibake |
-| `export_hf` + `verify_hf_export.py` | roadmap asked for HF interop; it silently did not work | **99.4–99.7% ID agreement** with Python `tokenizers`, remainder categorised |
+| `export_hf` + `verify_hf_export.py` | roadmap asked for HF interop; it silently did not work | **100% decode fidelity; 79.2% ID agreement** with Python `tokenizers` — see Known Limit 6 |
 | IndicCorpV2 Tamil fetched, mixed corpus built | domain skew was assumed, never measured | by-domain table in Section 4 |
 | Merge budget swept 30K/60K/120K | needed to know whether the mix was worth its dilution | mix **only wins above ~100K merges** |
 | Upsampled-wiki control (×8) | separated "more data" from "more diverse data" | byte-identical model: volume is irrelevant (re-verified after the fix) |
@@ -566,8 +575,10 @@ the defect is reintroduced.
 ### Phase 4: Ecosystem Compatibility — done
 - [x] GPT-2 byte-to-unicode table, pinned by a test
 - [x] `export_hf` → `tokenizer.json`, `tokenizer_config.json`, `vocab.json`, `merges.txt`
-- [x] Export reproduces our pretokenizer (`Split`) and base clusters (291 promotion merges)
-- [x] `verify_hf_export.py`: 99.4-99.7% ID agreement, remainder fully categorised
+- [x] Export reproduces our pretokenizer (`Split`) and base clusters (819 promotion merges)
+- [x] `verify_hf_export.py`: **100% decode fidelity**, 79.2% ID agreement, remainder fully categorised
+- [x] Re-verified against `v3_*` — the 99.4-99.7% figure on the `v2` generation did not reproduce (Known Limit 6)
+- [x] Latin-1 corruption fixed: `ByteLevel` removed from the decoder sequence (`201f135`)
 
 ### Phase 5: Multi-domain training — done
 - [x] IndicCorpV2 Tamil fetched and prepared
@@ -576,22 +587,26 @@ the defect is reintroduced.
 - [x] 120K merge-map cache cost fixed — first-token CSR layout, commit `60a4855`
 - [x] Unigram decided by measured A/B: **no** — 0.6% does not pay for a second trainer
 - [x] Trainer defects the A/B exposed fixed: 25% of the token count, two regression tests
-- [ ] Add `<0x00>..<0xFF>` byte-fallback to the export so HF stops dropping unvocab characters
+- [x] Add `<0x00>..<0xFF>` byte-fallback to the export so HF stops dropping unvocab characters (`20117fb`)
 
 ---
 
 ## Known limits carried forward
 
-1. **Latin-1 byte-stand-ins.** Under GPT-2's table, 162 byte tokens are also
-   ordinary Latin-1 text (`²`, `é`, `ñ`). Our encoder routes those through the
-   byte fallback and emits two tokens; HF matches the stand-in and emits one.
-   Affects ~0.2% of Tamil lines. Closing it requires byte-mapping in a
-   pretokenizer, which then breaks every raw-text merge.
-2. **HF drops characters absent from the vocab.** With `unk_token: null` and no
-   `byte_fallback`, HF BPE silently discards them; ours emits their UTF-8 bytes.
-   Seen on lines containing Han characters (`艾青`) in an IndicCorp-trained model.
-   Fix: add `<0x00>..<0xFF>` tokens, set `byte_fallback: true`, and prepend a
-   `Replace` to the decoder. Affects ~0.04% of lines in the mixed corpus.
+1. ~~**Latin-1 byte-stand-ins.**~~ **Closed.** This entry was wrong about the
+   mechanism and understated the damage. It claimed HF "matches the stand-in and
+   emits one" token; in fact `ByteLevel` was running *after* `ByteFallback` and
+   re-applying the GPT-2 table to already-decoded output, so a decoded `é`
+   (U+00E9, itself a stand-in for byte 0xE9) was turned back into the raw byte
+   0xE9 and decoded to U+FFFD. That is silent corruption, not a token count.
+   Swept across 3,988 Latin-1-bearing lines in four corpora: **2,074 (52.0%)
+   corrupted before, 0 after** (`201f135`). No pretokenizer change was needed, so
+   no raw-text merge was broken — the entry's stated blocker never applied.
+2. ~~**HF drops characters absent from the vocab.**~~ **Already fixed, entry was
+   stale.** `export_hf` has emitted `<0x00>..<0xFF>` with `byte_fallback: true`
+   since `20117fb`, and Han text round-trips correctly. What remains is only that
+   our byte-token *ids* differ from HF's: we use the base-vocab stand-in chars,
+   HF uses `<0xNN>`. Same token count, different ids — folded into Known Limit 6.
 3. **Throughput is chunk-bound at 30K; the 120K merge-lookup penalty is fixed.**
    ~1.7M chunks per 32 MB means per-chunk fixed costs dominate at small vocab.
    The 120K regime now costs ~12% rather than 2.4x, after `60a4855` replaced the
@@ -599,11 +614,30 @@ the defect is reintroduced.
 4. **Line-initial words are a separate, unreachable form.** The pretokenizer
    attaches one leading space per chunk, so the first word of every line trains as
    `கணிதம்` while every other occurrence is ` கணிதம்`, and only the spaced form
-   earns merges. Measured cost of the split: ~1.0% of tokens. Closing it shifts
-   every chunk boundary and so invalidates every model, which is why it is
-   recorded rather than fixed — see Section 3.
+   earns merges. Measured cost of the split: ~1.0% of tokens. `scripts/prefix_ab.py`
+   runs the A/B; closing it shifts every chunk boundary and so invalidates every
+   model, which is why it is recorded rather than fixed — see Section 3.
 5. **`model_max_length` must not go in `tokenizer.json`.** HF's schema rejects the
    field and the file becomes unloadable; it belongs in `tokenizer_config.json`.
+6. **HF export is a lossy approximation, not an equivalent.** This entry
+   supersedes the 99.4-99.7% agreement figure this document used to publish,
+   which did not reproduce: **79.2%** on wiki held-out and **73.0%** on IndicCorp
+   held-out, and *identical on `v2` and `v3`*, so it was never true for the
+   generation it was attributed to. Decode fidelity is 100%.
+
+   The cause is structural, not a data defect: all 120,000 learned merges survive
+   the export (verified — zero lost). HF's `BPE` model always starts from
+   individual characters, while `FastBPEEncoder` starts from the 1,135 base
+   clusters and only then applies merges by rank. The same merge list over
+   different starting symbols yields different segmentations: on ` வள்ளச்சி`
+   ours yields one token, HF yields ` வள்ள` + `ச்சி`. Registering base clusters
+   as `added_tokens` was tried and is worse — HF extracts added tokens before
+   the BPE model runs, merges never fire, and agreement drops to 0%.
+
+   In token *count* the gap is small: 1.565 vs 1.539 tok/word on cleaned wiki
+   held-out, ~1.7%. The 79.2% is ID agreement, not token count. HF `BPE` has no
+   seed-symbol concept, so this cannot be closed inside the format — treat the
+   export as an approximation and quote our own encoder's numbers.
 
 ---
 
@@ -618,10 +652,11 @@ instead of an effect size. Sources are external unless marked as ours.
 
 | Item | Why | What settles it |
 |---|---|---|
-| Re-run `verify_hf_export.py` against `v3_*` | the 99.4-99.7% ID agreement was measured on `v2`, and the merge lists have since changed entirely, so the export path is **unverified for the models we now recommend** | agreement percentage on both held-out splits, remainder categorised, as before |
-| `<0x00>..<0xFF>` byte-fallback in the export | HF silently drops characters absent from the vocab; our encoder emits their UTF-8 bytes | round-trip an export on lines containing out-of-vocab scripts, and check the HF `added_tokens` decode bug ([tokenizers#1996](https://github.com/huggingface/tokenizers/issues/1996)) does not apply |
+| ~~Re-run `verify_hf_export.py` against `v3_*`~~ | **done** — the 99.4-99.7% figure did not reproduce; 79.2% wiki / 73.0% IndicCorp, identical on `v2`, cause recorded in Known Limit 6 | — |
+| ~~`<0x00>..<0xFF>` byte-fallback in the export~~ | **done, earlier than this section claimed** (`20117fb`); Han round-trips, no [tokenizers#1996](https://github.com/huggingface/tokenizers/issues/1996) effect | — |
+| Re-verify the Latin-1 decoder fix on IndicCorp held-out for all three `v3_*` models | measured on 3,988 Latin-1 lines corpus-wide and on `v3_mixed` end-to-end; the other two were only checked on wiki held-out | 100% decode on both splits for all three |
 | Publish an artifact for the new default | Section 4 recommends 120K mixed, but `output/` is gitignored so that recommendation exists only as prose | a named artifact plus the exact reproducible training command |
-| Hugging Face publication | blocked on repo credentials, unchanged | — |
+| Hugging Face publication | blocked on repo credentials, unchanged. Note the published 32K export predates `201f135` and still carries the Latin-1 corruption | — |
 
 ### 7.2 Evaluation: we have exactly one metric
 

@@ -201,6 +201,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--repo', default=DEFAULT_REPO)
     ap.add_argument('--apply', action='store_true', help='actually upload (default: dry run)')
+    ap.add_argument('--card-only', action='store_true',
+                    help='re-upload only README.md, not the model files')
     ap.add_argument('--only', choices=[m['key'] for m in MODELS], help='publish one model')
     ap.add_argument('--corpora', action='store_true', help='also upload the training corpora')
     args = ap.parse_args()
@@ -291,22 +293,32 @@ def main():
     from huggingface_hub import HfApi
 
     api = HfApi(token=token)
-    api.create_repo(args.repo, repo_type='model', exist_ok=True)
-    for dest, src in sorted(uploads.items()):
-        print(f'   uploading {dest} ...', end='', flush=True)
-        api.upload_file(
-            path_or_fileobj=src,
-            path_in_repo=dest,
-            repo_id=args.repo,
-            repo_type='model',
-        )
-        print(' done')
+    if args.card_only:
+        print('   card-only: skipping model files')
+    else:
+        api.create_repo(args.repo, repo_type='model', exist_ok=True)
+        for dest, src in sorted(uploads.items()):
+            print(f'   uploading {dest} ...', end='', flush=True)
+            api.upload_file(
+                path_or_fileobj=src,
+                path_in_repo=dest,
+                repo_id=args.repo,
+                repo_type='model',
+            )
+            print(' done')
 
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False,
                                      encoding='utf-8') as f:
         f.write(card)
         card_path = f.name
-    api.upload_file(card_path, 'README.md', args.repo, repo_type='model')
+    # huggingface_hub 1.x takes keyword-only args after `self`; a positional
+    # call here raises TypeError only after the model files are already up.
+    api.upload_file(
+        path_or_fileobj=card_path,
+        path_in_repo='README.md',
+        repo_id=args.repo,
+        repo_type='model',
+    )
     os.unlink(card_path)
 
     print(f'\nPublished to https://huggingface.co/{args.repo}')

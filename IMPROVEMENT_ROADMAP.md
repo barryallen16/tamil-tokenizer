@@ -110,7 +110,7 @@ resulting dependency: any token the pretokenizer never sees as a contiguous unit
 is unreachable during training, which is why `tests/lib.rs` asserts these
 directly against the encoder rather than only through the trainer.
 
-### Measured, not fixed: words are trained in two forms and only one is reachable
+### Decided: line-initial words train in two forms and only one is reachable
 
 The pretokenizer attaches one leading space to a chunk (` ?` in the pattern), so
 mid-line ` கணிதம்` is a single chunk. The **first chunk of a line has no space**,
@@ -133,10 +133,25 @@ held-out lines; 13.605 vs 13.468 bytes/token on the same byte denominator). Smal
 ~1 token — and it was 3.7% before the trainer fix, because the buggy trainer was
 wasting merges re-attaching spaces to its own base clusters.
 
-**Why not fixed:** closing it means either prefixing inside `pretokenize`, which
-shifts every chunk boundary and therefore invalidates every model ever trained,
-or teaching the trainer that the two forms are one word. Both need the
-compression A/B this section already demands before touching the pretokenizer.
+**Decided: ADOPT the dummy prefix for all newly trained models.** The A/B asked
+for here has been run — `scripts/prefix_ab.py`, two 30K models on the same
+corpus, scored on the held-out split:
+
+| training corpus | bytes/token |
+|---|---:|
+| as-is | 13.468 |
+| one space prepended to every line | **13.294** |
+
+**+1.29%**, above the 0.5% threshold, and independently reproducible against the
+estimate above. No pretokenizer change is needed: the trainer reads a corpus
+file, so prepending the space to every *training* line gives SentencePiece's
+`add_dummy_prefix` effect. Scoring stays on the **unprefixed** held-out split,
+because that is what real input looks like.
+
+This applies to **new models only**. Chunk boundaries shift, so the two
+published artifacts and every model in `output/` remain on the old scheme. The
+gain is small enough that republishing for 1.29% is not worth invalidating
+existing ids; retrain when there is a reason to.
 
 ---
 
@@ -784,9 +799,27 @@ social text rather than Wikipedia, this is the biggest untested item here.
 - Reserved tokens: BharatGen deliberately leaves many tokens unassigned "to
   accommodate future expansion". We reserve 100. Worth an explicit decision
   rather than an inherited default.
-- **Vocabulary utilisation is unmeasured.** At 121,793 tokens it is unknown how
-  much of the tail earns its keep. If most of it is inert, a smaller vocabulary
-  with better merges could match it at higher throughput.
+- **Vocabulary utilisation — measured.** `scripts/vocab_utilization.py`, scored
+  on both held-out splits (70,000 lines). Utilisation degrades sharply with
+  budget, and much faster on the homogeneous corpus:
+
+  | model | never used | used >10x | first 30K merges carry | smallest vocab for 99.9% of emissions |
+  |---|---:|---:|---:|---:|
+  | wiki 30K | 8.2% | 58.8% | 76.0% | 27,685 |
+  | mixed 60K | 7.5% | 36.1% | 72.0% | 56,471 |
+  | mixed 120K | 22.9% | 36.1% | 66.8% | 93,214 |
+  | wiki 120K | **40.4%** | 54.3% | 66.8% | 71,301 |
+
+  The wiki-only 120K model is the worst of the four — 40% of it does nothing on
+  in-domain text, because a homogeneous corpus gives a 120K budget nothing but
+  more of the same to overfit. This is an argument *for* the mixed corpus at
+  large budgets, independent of the by-domain compression table.
+
+  It does not argue for shrinking 120K. "Unused on 70,000 held-out lines" is not
+  "useless" — a large vocab exists partly to cover rare-but-correct input. What
+  it does mean is that the 120K recommendation carries ~28,000 tokens that do no
+  work in-domain, so its advantage should be read as concentrated in the first
+  60–90K.
 
 ### 7.6 Harness hygiene
 

@@ -44,6 +44,34 @@ BASELINES = {
 }
 
 
+def load_tiktoken(enc):
+    """cl100k_base via tiktoken. Not a `transformers` tokenizer, so it needs the
+    same shim as ours. This is the baseline people actually ship, and unlike
+    mBERT it is not 10 years old.
+
+    tiktoken is BPE over byte pairs, so Tamil — which it has no vocabulary for
+    — falls back to near one token per byte. Expect a tok/word in the high
+    single digits. That is the finding, not a bug: it is what the tokenization
+    tax looks like from the general-tokenizer end.
+    """
+    import tiktoken
+
+    class Tik:
+        def __init__(self, t):
+            self.t = t
+
+        def encode(self, text):
+            return self.t.encode(text, allowed_special=set(), disallowed_special=())
+
+        def id_to_piece(self, i):
+            return None
+
+    return Tik(tiktoken.get_encoding(enc))
+
+
+TIKTOKEN_BASELINES = {"cl100k_base": "cl100k_base"}
+
+
 def load_ours(path):
     """Our export is a `tokenizers` BPE file, not a HF transformers one."""
     from tokenizers import Tokenizer
@@ -165,6 +193,13 @@ def main():
             continue
         try:
             tokenizers[name] = AutoTokenizer.from_pretrained(repo)
+        except Exception as e:
+            print(f"  skip {name}: {type(e).__name__}: {str(e)[:90]}")
+    for name, enc in TIKTOKEN_BASELINES.items():
+        if name in args.skip:
+            continue
+        try:
+            tokenizers[name] = load_tiktoken(enc)
         except Exception as e:
             print(f"  skip {name}: {type(e).__name__}: {str(e)[:90]}")
     print(f"tokenizers: {list(tokenizers)}\n")

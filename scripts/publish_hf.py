@@ -142,12 +142,20 @@ Held-out splits, not trained on:
 |---|---:|---:|---:|---:|
 {chr(10).join(rows)}
 
-32K model under Qwen2.5-0.5B on cleaned wiki, via `scripts/colab_bpb.py`:
+120K model under Qwen2.5-0.5B on the cleaned wiki held-out split, via
+`scripts/colab_bpb.py`:
 
-| tokenizer | bits/byte | tok/word |
+| tokenizer | tok/word | bits/byte |
 |---|---:|---:|
-| this repo (32K) | 1.06 | 1.77 |
-| bert-base-multilingual-cased | 2.16 | 3.74 |
+| this repo (120K) | **1.57** | **1.00** |
+| bert-base-multilingual-cased | 3.74 | 2.16 |
+| Llama 3 | 11.96 | 3.60 |
+| cl100k_base | 11.88 | 3.60 |
+
+Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
+byte-fallback BPE with no Tamil vocabulary, so both collapse to about one token
+per UTF-8 byte. Which byte-level BPE you pick makes no difference; having Tamil
+vocabulary does.
 
 ## Files
 
@@ -187,8 +195,9 @@ characters, so identical merge lists produce different segmentations:
 `வள்ளச்சி` is one token here and ` வள்ள` + `ச்சி` there. No merges are lost in
 the export; all of them are present and in rank order.
 
-Token count differs by about 1.7%. If you need exact ID parity, use the Rust
-encoder. Full write-up in Known Limit 6 of `IMPROVEMENT_ROADMAP.md`.
+Token count differs by about 0.5% against the Rust encoder. If you need exact
+ID parity, use the Rust encoder. Full write-up in Known Limit 6 of
+`IMPROVEMENT_ROADMAP.md`.
 """
 
 

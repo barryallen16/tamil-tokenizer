@@ -34,14 +34,35 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── bench_speed.rs          # CLI: JSON throughput report (for scripts)
 ├── test_special_tokens.rs  # Special token integration tests
 ├── main.rs                 # Interactive encoder/decoder REPL
-├── tests/lib.rs            # Test suite (46 tests)
+├── tests/lib.rs            # Test suite (50 tests)
 ├── scripts/evaluate.py     # Compression and fertility report (needs no extra deps)
 ├── scripts/extract_wiki_fast.py # Wiki dump extraction with MediaWiki cleaning
 ├── scripts/fetch_indiccorp.py    # Pull a byte range of IndicCorpV2 Tamil
 ├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
 ├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
+├── scripts/vocab_utilization.py  # How much of a trained vocab is actually used
+├── scripts/prefix_ab.py          # A/B the line-initial dummy-prefix fix
+├── scripts/colab_bpb.py          # Bits-per-byte vs general-purpose tokenizers (GPU)
+├── scripts/publish_hf.py         # Publish to the Hub with a measured model card
 └── data/tamil_corpus.txt   # 117-line sample corpus
 ```
+
+### The measurement scripts
+
+Four of these exist because a published number stopped being true. Each one
+re-derives its number rather than trusting a stored value:
+
+| script | what it settles |
+|---|---|
+| `vocab_utilization.py` | How much of a trained vocab is used at all, and which merge ranks carry the weight |
+| `prefix_ab.py` | Whether prepending a space to every training line helps. Runs both arms and prints ADOPT/REJECT |
+| `colab_bpb.py` | Bits-per-byte against mBERT, Llama 3 and `cl100k_base`. Needs a GPU; runs in Colab |
+| `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
+
+A caveat `colab_bpb.py` enforces on itself: a scoring LM's **own** tokenizer must
+never appear in the comparison table. It was trained on its own segmentation, so
+it wins on that alone — Qwen2.5 scores 0.77 bits/byte against our 1.15 in the
+same run, which says nothing about Tamil tokenization.
 
 ## Quickstart
 
@@ -49,21 +70,35 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 The Hugging Face repo
 **[barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)**
-publishes a trained 32K-merge tokenizer alongside the training corpora.
+publishes two trained tokenizers alongside the training corpora: 30K merges on
+cleaned wiki, and the recommended 120K merges on wiki + IndicCorpV2.
 
 ```bash
-# Download the published 32K tokenizer (2.7 MB)
-curl -L -o output/tamil_tokenizer_wiki.json \
-  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_tokenizer_wiki.json
+REPO=https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main
+
+# 30K on cleaned wiki (2.7 MB) — this repo's own format
+curl -L -o output/tamil_tokenizer_wiki.json $REPO/tamil_tokenizer_wiki.json
+
+# 120K mixed (11.7 MB) — the recommended default
+curl -L -o output/tamil_tokenizer_wiki_120k_mixed.json \
+  $REPO/tamil_tokenizer_wiki_120k_mixed.json
+
+# Either one, converted for Python's `tokenizers`
+curl -L -o /tmp/tokenizer.json \
+  $REPO/tamil_tokenizer_wiki_120k_mixed_hf/tokenizer.json
 
 # It loads with this repo's encoder:
 cargo run --release --bin encode -- ./output/tamil_tokenizer_wiki.json "வணக்கம்"
-# 490 334 2331
+# 11690 1980
 
 # Download the 38 MB training corpus
-curl -L -o data/tamil_wiki_corpus.txt \
-  https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main/tamil_wiki_corpus.txt
+curl -L -o data/tamil_wiki_corpus.txt $REPO/tamil_wiki_corpus.txt
 ```
+
+The bare `.json` files are this repo's `{vocab, merges, metadata}` format and
+load through the Rust encoder. To use them from Python, fetch the `_hf/`
+`tokenizer.json` variant instead — see "The published models" below for what
+that conversion does and does not preserve.
 
 `scripts/evaluate.py` accepts the tokenizer path as an argument and defaults to the
 local `output/tamil_tokenizer.json`.
@@ -257,15 +292,16 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 | Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
 | Corpus compression | 2.56 bytes/token |
 | Tamil tokens/word | 3.64 |
-| Encode throughput (single thread, 16 MB clean wiki) | 17.8 MB/s (32K vocab), 12.7 MB/s (64K vocab) |
-| Encode throughput (rayon batch, 16 MB clean wiki) | 42.0 MB/s (32K vocab), 32.2 MB/s (64K vocab) |
+| Encode throughput (single thread, 16 MB clean wiki) | 26.6 MB/s (32K vocab), 23.6 MB/s (120K vocab) |
+| Encode throughput (rayon batch, 16 MB clean wiki) | 69.4 MB/s (32K vocab), 58.1 MB/s (120K vocab) |
 
 *\*The 907 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
 
 Throughput measured with `cargo run --release --bin bench`, best of three passes
 over 16 MB of `data/tamil_wiki_clean.txt`. Run-to-run variance is a few percent.
-The 64K vocab is slower per byte because its automaton and rank scans are larger,
-but it emits 5% fewer tokens.
+Moving 30K to 120K merges costs about 11% of throughput, not the 2.4x an earlier
+revision of this file claimed: the merge table is CSR-indexed by first token
+(commit `60a4855`) rather than hashed on the pair, so it still fits in cache.
 
 ### Head-to-head, same inputs, measured here
 
@@ -309,6 +345,13 @@ scales cleanly. Compression on held-out wiki lines by merge budget:
 | 5,000 | 1.1 s | 7.07 |
 | 30,000 | 1.4 s | 8.31 |
 
+> **Stale figures, kept for the record.** The row above predates two fixes and
+> its 8.31 bytes/token is roughly a quarter below what the same merge budget now
+> achieves. The trainer's merge heap used to discard stale entries rather than
+> re-push them, which made training *faster* by skipping work — the 1.4 s above
+> is that bug's fingerprint, not a record. Fixing it was worth 25% of the token
+> count; see `IMPROVEMENT_ROADMAP.md` §5.
+
 Even at 30K merges the tail pair frequency is 11, so no singleton junk appears
 and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). A 5,000-line
 wiki fuzz through encode/decode round-trips byte-exact on both the 1K and 30K
@@ -329,8 +372,11 @@ python scripts/extract_wiki_fast.py --clean data/tamil_wiki_corpus.txt data/tami
 ```
 
 On the 127,889-line wiki corpus this keeps 111,956 lines (32.3 MB of 38.8 MB).
-A model trained on the cleaned corpus at 30K merges reaches **10.76 bytes/token**,
-against 8.31 for the same merge budget on the uncleaned corpus.
+A model trained on the cleaned corpus at 30K merges reached **10.76 bytes/token**
+at the time of writing, against 8.31 for the same merge budget on the uncleaned
+corpus. Both of those figures are pre-trainer-fix; the cleaning ratio is what the
+comparison is for, and it held — the published 30K model now reaches **13.29**
+bytes/token on the same held-out split.
 
 ### Multi-domain: IndicCorp Tamil
 
@@ -352,49 +398,49 @@ own training slice.
 
 | Training corpus | Merges | wiki | IndicCorp |
 |---|---:|---:|---:|
-| wiki 25 MB | 30K | **10.183** | 10.280 |
-| IndicCorp 199 MB | 30K | 9.707 | **10.916** |
-| mixed 25 wiki + 199 ic | 30K | 10.005 | 10.948 |
-| wiki 25 MB | 120K | 10.895 | 11.095 |
-| IndicCorp 199 MB | 120K | 10.554 | 11.813 |
-| mixed 25 wiki + 199 ic | 120K | **10.914** | **11.866** |
+| wiki 25 MB | 30K | **13.468** | 13.449 |
+| IndicCorp 199 MB | 30K | 12.781 | **14.747** |
+| mixed 25 wiki + 199 ic | 30K | 13.138 | 14.729 |
+| wiki 25 MB | 60K | 14.429 | 14.517 |
+| IndicCorp 199 MB | 60K | 13.856 | 15.956 |
+| mixed 25 wiki + 199 ic | 60K | 14.236 | 15.939 |
+| wiki 25 MB | 120K | 15.149 | 15.330 |
+| IndicCorp 199 MB | 120K | 14.829 | 16.952 |
+| mixed 25 wiki + 199 ic | 120K | 15.212 | **16.944** |
 
 Three things this shows:
 
 - **Domain skew is real but asymmetric.** Wiki is the better general-purpose Tamil
   corpus: homogeneous, so its frequent n-grams are core orthography that
-  transfers to news. The IndicCorp model loses 3.3% on wiki.
+  transfers to news. At 120K the wiki-only model loses 9.5% against the mix on
+  IndicCorp, while the IndicCorp-only model loses 2.5% on wiki.
 - **Volume is irrelevant.** Retraining wiki on the same 25 MB repeated 8 times
-  produces a byte-identical model (10.183 / 10.280). The trainer keys on unique
+  produces a byte-identical model (13.468 / 13.449). The trainer keys on unique
   words, so upsampling scales frequencies uniformly. Only *diversity* costs.
-- **Mixing only pays above ~100K merges.** At 30K the mix is dominated — it loses
-  to wiki-only on wiki and ties IndicCorp-only on IndicCorp. At 120K it wins on
-  both.
+- **Mixing only pays at a large merge budget.** At 30K the mix loses to
+  wiki-only on wiki (13.138 vs 13.468). At 120K it *ties* the best specialist on
+  each domain — 15.212 vs 15.149 on wiki, 16.944 vs 16.952 on IndicCorp, both
+  within 0.4%. A tie, not a win; the earlier revision of this table showed the
+  mix ahead on both and overstated the margin.
 
 ### Cost of a large vocab
 
-| Model | Merges | Vocab | wiki MB/s |
-|---|---:|---:|---:|
-| wiki | 30K | 31,261 | 17.3 |
-| mixed | 30K | 31,934 | 16.9 |
-| wiki | 120K | 106,042 | 5.5 |
-| mixed | 120K | 121,934 | 6.9 |
+| Model | Merges | Vocab | wiki MB/s | IndicCorp MB/s |
+|---|---:|---:|---:|---:|
+| wiki | 30K | 31,793 | 26.6 | 28.0 |
+| mixed | 30K | 32,462 | 26.6 | 25.5 |
+| mixed | 120K | 122,462 | 23.6 | 24.1 |
 
-30K → 120K buys 7-9% compression for **2.4x throughput**. Stripping the merge
-list isolates where that goes:
+30K → 120K buys 13-26% compression for about **11% throughput**. An earlier
+revision of this section measured the cost at 2.4x and recommended staying at
+30K. That measurement was taken before the merge table was re-indexed; the cost
+is no longer what it was, and the recommendation reversed with it.
 
-| Config | MB/s |
-|---|---:|
-| 31K vocab, merges stripped | 37.9 |
-| 122K vocab, merges stripped | 31.5 |
-| 31K vocab, merges on | 17.4 |
-| 122K vocab, merges on | 7.3 |
-
-The automaton is nearly free at 4x the patterns (-17%). The merge stage is the
-cost: past ~100K entries `pair_to_merge` stops fitting in cache. So **30K on
-cleaned wiki is the default** (17 MB/s, 10.18 bytes/token, within 1% of best on
-IndicCorp too); reach for 120K mixed only when sequence length matters more
-than latency.
+Vocabulary utilisation is measured too, via `scripts/vocab_utilization.py`: at
+120K mixed, 22.9% of the vocab is never used on either held-out split, and the
+last 30K merges carry 2.4% of emitted tokens. A 120K vocab partly exists to
+cover rare-but-correct input, so this is not an argument for shrinking — but it
+does mean 120K's advantage is concentrated in the first 60-90K merges.
 
 ### How encoding works
 
@@ -419,17 +465,45 @@ them, and the encoder reuses those IDs instead of remapping them. The exact
 ID range where they start depends on the corpus, because the trainer mints IDs for
 clusters it discovers while reading.
 
-### The published 32K model
+### The published models
 
-The published model is 32,142 vocab entries (IDs 0–32141, contiguous) and 30,000
-ordered merges: 32,034 content tokens, 8 named specials, and 100 reserved slots.
-It was trained on the 38.8 MB wiki corpus in about 1.4 s.
+The Hub repo publishes two models, both retrained as **v4** — with a dummy
+prefix on every training line, which closes the line-initial word split and is
+worth 0.5-1.3% depending on merge budget:
 
-Two caveats on using it from Python: the file is in this repo's
-`{vocab, merges, metadata}` format, so `tokenizers.Tokenizer.from_file` will not
-load it — use the Rust CLI or `lib.rs` directly. And this repo makes no
-throughput comparison against other tokenizer libraries; the figures above are
-its own measurements only.
+| file | merges | vocab | wiki B/tok | IndicCorp B/tok |
+|---|---:|---:|---:|---:|
+| `tamil_tokenizer_wiki.json` | 30,000 | 31,793 | 13.294 | 13.255 |
+| `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,462 | 15.128 | 16.790 |
+
+**The 120K mixed model is the default.** It ties the best specialist on each
+domain, and after the merge-table re-indexing the throughput cost of going from
+30K to 120K is about 11% rather than the 2.4x an earlier revision quoted. Use
+the 30K when artifact size matters more than sequence length.
+
+Each is published twice: the bare `.json` in this repo's
+`{vocab, merges, metadata}` format, and a `_hf/tokenizer.json` that Python's
+`tokenizers` loads directly. **Use the `_hf` one from Python** —
+`Tokenizer.from_file` cannot read the bare format and raises a JSON parse error.
+
+The model card is generated at publish time by `scripts/publish_hf.py`, which
+refuses to upload unless decode fidelity is 100% on both held-out splits.
+
+### Measured against general-purpose tokenizers
+
+Cleaned wiki held-out split, scored under Qwen2.5-0.5B:
+
+| tokenizer | tok/word | bits/byte |
+|---|---:|---:|
+| **this repo (120K)** | **1.57** | **1.00** |
+| `bert-base-multilingual-cased` | 3.74 | 2.16 |
+| Llama 3 | 11.96 | 3.60 |
+| `cl100k_base` | 11.88 | 3.60 |
+
+Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
+byte-fallback BPE with no Tamil vocabulary, so both collapse to roughly one
+token per UTF-8 byte, and Tamil is a 3-byte script. Which byte-level BPE you use
+is irrelevant; whether it has Tamil vocabulary is everything.
 
 ## Hugging Face export
 
@@ -451,28 +525,45 @@ both instead of leaving them to fail silently in Python:
   regex, which leaves raw text intact.
 - **Base clusters.** Our trainer treats `கே` and `ங்` as atomic base symbols. HF
   BPE has no base-symbol set: it starts from single characters and can only reach
-  a token through merges. The exporter adds 291 promotion merges that build each
+  a token through merges. The exporter adds 819 promotion merges that build each
   such token from its characters, ranked by decreasing token length so HF
   resolves overlaps by longest match the way our automaton does. It also appends
   the 4 characters (`ோ`, `ூ`, `ொ`, `ௌ`) that the base vocab lacks but the
   corpus contains.
 
+  This bridges the gap only partially. Measured against `data/wiki/test.txt`,
+  `verify_hf_export.py` reports **100% decode fidelity** but **~72-79% ID
+  agreement** — the same merge list applied to different starting symbols
+  produces different segmentations, because HF starts from characters where we
+  start from base clusters. In token *count* the gap is under 1%. Registering
+  base clusters as HF `added_tokens` instead is worse, not better: added tokens
+  are extracted before the BPE model runs, so the model never fires. See
+  `IMPROVEMENT_ROADMAP.md` Known Limit 6.
+
 ### Known limits
 
-162 byte-stand-in characters are also ordinary Latin-1 text (`²`, `é`, `ñ`). Our
-encoder routes those through the byte fallback and emits two tokens; HF, which
-sees raw text here, matches the stand-in and emits one. This affects about 0.2%
-of Tamil lines. Closing it would mean byte-mapping in a pretokenizer, which then
-breaks every raw-text merge above.
+**ID agreement is ~72-79%, and that is structural.** All learned merges survive
+the export — none are dropped. The gap is the starting symbol set: this encoder
+segments into base clusters then applies merges by rank, while HF's `BPE` model
+always starts from single characters. The same merge list over different starting
+symbols segments differently. In token *count* the gap is under 1%.
 
-Separately, with `unk_token: null` and no `byte_fallback`, HF BPE **silently
-drops** characters that are absent from the vocab — seen on lines containing Han
-characters (`艾青`) in an IndicCorp-trained model, at ~0.04% of lines. Ours emits
-their UTF-8 bytes. Fix: add `<0x00>..<0xFF>` tokens, set `byte_fallback: true`,
-and prepend a `Replace` to the decoder.
+Two defects that used to be listed here are now fixed, and both were worse than
+described:
 
-`verify_hf_export.py` counts both categories separately and fails on anything
-else. Measured 99.4-99.7% ID agreement across the three models.
+- **Latin-1 text was being corrupted, not just over-fragmented.** Running
+  `ByteLevel` after `ByteFallback` re-applied the GPT-2 table to already-decoded
+  output, so a decoded `é` became the raw byte 0xE9 and came back as U+FFFD.
+  Across 3,988 Latin-1-bearing lines in four corpora, **2,074 (52%) decoded
+  corrupted** before the fix and 0 after. The decoder sequence is now
+  `ByteFallback` alone.
+- **Unvocab characters are no longer dropped.** `export_hf` emits `<0x00>..<0xFF>`
+  with `byte_fallback: true`; Han text round-trips correctly.
+
+`verify_hf_export.py` reports decode fidelity and ID agreement separately,
+because they catch different failures — and it is **decode fidelity (100%), not
+ID agreement, that the publish script gates on**. A tokenizer that corrupts text
+is worse than no tokenizer.
 
 ## Dependencies
 

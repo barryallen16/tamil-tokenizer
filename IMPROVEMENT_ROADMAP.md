@@ -721,29 +721,43 @@ structure-sensitive metrics correlate with task accuracy.
    (Qwen2.5-0.5B), so the only variable is the tokenizer.
 
    Scored on the **cleaned** wiki held-out split (20,000 lines, 5.76 MB),
-   32K-merge model:
+   120K-merge model, under Qwen2.5-0.5B:
 
-   | | tok/word | bits/byte |
-   |---|---:|---:|
-   | ours | **1.77** | **1.06** |
-   | mBERT | 3.74 | 2.16 |
+   | tokenizer | tok/word | bits/byte | tokens emitted |
+   |---|---:|---:|---:|
+   | **ours** | **1.57** | **1.00** | 403,813 |
+   | mBERT | 3.74 | 2.16 | 855,221 |
+   | Llama 3 | 11.96 | 3.60 | 2,825,404 |
+   | `cl100k_base` | 11.88 | 3.60 | 2,825,610 |
 
-   **2.11x better on fertility, 51% lower bits-per-byte.** This pair is
-   trustworthy because neither tokenizer is the scoring model's own, so neither
-   row gets the home advantage a native tokenizer gets. mBERT's 3.74
-   tok/word independently corroborates the 3.64 TamilTok reports for it.
+   **7.6x better fertility than Llama 3, 3.6x lower bits-per-byte.** None of
+   these three is the scoring model's own tokenizer, so no row gets the home
+   advantage a native tokenizer gets.
+
+   **The Llama 3 / `cl100k_base` tie is the finding.** 206 tokens apart out of
+   2.8 million — 0.007%. Both are byte-fallback BPE with no Tamil vocabulary,
+   so they degenerate to the same thing: roughly one token per UTF-8 byte, and
+   Tamil is a 3-byte script. *Which* byte-level BPE you use is irrelevant; only
+   whether the tokenizer has Tamil vocabulary matters. That is this project's
+   premise stated in a single row pair, and it is worth more than any
+   bytes/token figure in this document.
+
+   Two external corroborations, from different test sets: mBERT scores 3.74
+   tok/word here against the 3.64 TamilTok reports for it, and our 1.57 sits
+   below every published Tamil figure (VerChol 1.86, Gnani 1.9969) and below
+   the 1.4-2.1 band Sarvam reports for its ten Indic languages.
 
    Corpus choice moved this result and would have flattered us if picked the
    other way. On the raw MediaWiki dump ours scores 1.946 and mBERT 3.241,
    because the dump is ~9% ASCII markup and mBERT handles ASCII cheaply. Clean
    prose is the honest test, and it is where mBERT is *worse* (3.735).
 
-   Two things this does **not** say. It is the 32K-merge model, not the 120K
-   default Section 4 recommends, so it is a floor. And Llama 3 is gated while
-   `cl100k_base` and Sarvam are still unrun. A model's *own* tokenizer must
-   never appear in this table: Qwen2.5 scored its own segmentation at 0.77
-   bits/byte against our 1.15 in the first run, which is a property of the
-   training pair, not of Tamil tokenization.
+   A model's *own* tokenizer must never appear in this table: Qwen2.5 scored
+   its own segmentation at 0.77 bits/byte against our 1.15 in the first run,
+   which is a property of the training pair, not of Tamil tokenization.
+
+   Still unrun: Sarvam, and any Indic-specialised baseline (VerChol, Gnani,
+   TamilTok) whose published numbers are the ones above.
 
 **Sanity check on the one number we do have.** Our fertility is 1.76 tok/word at
 30K and 1.56 at 120K. Published Tamil fertility for Indic-specialised tokenizers

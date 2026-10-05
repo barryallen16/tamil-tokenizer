@@ -43,25 +43,34 @@ SPLITS = [
 # The two models worth publishing, and how each was trained. The command is
 # printed into the card so a reader can regenerate the artifact rather than
 # trust it.
+#
+# Both are v4: trained with a dummy prefix on every training line, which closes
+# the line-initial word split the roadmap measured at +1.0-1.3%. A v3 model and a
+# v4 model differ only in that preprocessing, so the published set is coherent.
+PREFIX_NOTE = ("train on a copy of the corpus with one space prepended to every "
+               "line (SentencePiece's add_dummy_prefix)")
+
 MODELS = [
     {
         'key': '32k',
         'name': 'tamil_tokenizer_wiki',
-        'local': 'output/v3_wiki_30000.json',
-        'training': 'cargo run --release --bin train -- data/wiki/train.txt 30000',
+        'local': 'output/v4_wiki_30000_prefixed.json',
+        'training': 'python scripts/prefix_ab.py data/wiki/train.txt '
+                    'data/wiki/test.txt 30000   # then take dummy.json',
         'corpus': 'data/wiki/train.txt',
-        'blurb': '30K merges on cleaned Tamil Wikipedia. Same size as the model this '
-                 'repo previously published, retrained after the merge-heap fix, so '
-                 'it compresses ~27% better than that file did.',
+        'blurb': '30K merges on cleaned Tamil Wikipedia. Same merge budget as the '
+                 'model this repo previously published, but trained with a dummy '
+                 'prefix, which is worth ~1.3%.',
     },
     {
         'key': '120k',
         'name': 'tamil_tokenizer_wiki_120k_mixed',
-        'local': 'output/v3_mixed_120000.json',
-        'training': 'cargo run --release --bin train -- data/mixed/train.txt 120000',
+        'local': 'output/v4_mixed_120000_prefixed.json',
+        'training': 'python scripts/prefix_ab.py data/mixed/train.txt '
+                    'data/wiki/test.txt 120000  # then take dummy.json',
         'corpus': 'data/mixed/train.txt',
-        'blurb': 'The roadmap-recommended default: 120K merges on wiki + IndicCorpV2. '
-                 'Matches the best specialist on each domain.',
+        'blurb': 'The roadmap-recommended default: 120K merges on wiki + '
+                 'IndicCorpV2. Matches the best specialist on each domain.',
     },
 ]
 
@@ -142,7 +151,7 @@ Held-out splits, not trained on:
 |---|---:|---:|---:|---:|
 {chr(10).join(rows)}
 
-120K model under Qwen2.5-0.5B on the cleaned wiki held-out split, via
+Bits-per-byte, cleaned wiki held-out split under Qwen2.5-0.5B, via
 `scripts/colab_bpb.py`:
 
 | tokenizer | tok/word | bits/byte |
@@ -156,6 +165,10 @@ Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
 byte-fallback BPE with no Tamil vocabulary, so both collapse to about one token
 per UTF-8 byte. Which byte-level BPE you pick makes no difference; having Tamil
 vocabulary does.
+
+Measured on the 120K export before the dummy-prefix change; the models published
+here are slightly better still by bytes/token (see the table above). The gap is
+under 1% either way.
 
 ## Files
 
@@ -178,6 +191,9 @@ cargo run --release --bin export_hf -- tamil_tokenizer_wiki.json hf_export/out 5
 ```
 
 ## Training
+
+Both models are v4: {PREFIX_NOTE}. A v3 model differs only in that
+preprocessing step, so the two published artifacts are comparable.
 
 ```bash
 {chr(10).join(m['training'] for m in MODELS if m['name'] in measured)}

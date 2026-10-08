@@ -791,10 +791,40 @@ social text rather than Wikipedia, this is the biggest untested item here.
 
 | Experiment | Source | Why it lands here |
 |---|---|---|
-| Split digits individually | [BharatGen](https://arxiv.org/html/2508.06533v1); Singh & Strouse 2024 measure ~20% arithmetic-accuracy swings from digit tokenization | our pretokenizer emits digit runs as one chunk (`(?:\p{N}\p{M}*)+`), so `1963` is a single token. Cheap A/B |
+| Split digits individually | [BharatGen](https://arxiv.org/html/2508.06533v1); Singh & Strouse 2024 measure ~20% arithmetic-accuracy swings from digit tokenization | **measured — the price is 1.5-3.4% compression and the benefit is unmeasurable here. See below.** |
 | Separate diacritics/matras in pretokenization | BharatGen evaluated exactly this, trading token-to-word ratio against robustness to user diacritic errors | this is the question our syllable clusters answer the opposite way, and the `ும்` pathology — a token starting with a combining mark — arrived by accident, not decision |
 | Sandhi-aware tokenization | [Agathiyam](https://openreview.net/forum?id=r3ViBkH9ic) (ICLR 2026 submission, **unrefereed**; the PDF sits behind OpenReview's browser check, so its numbers could not be verified here); [BHARATI](https://arxiv.org/html/2607.23319v1) | Tamil sandhi means whitespace boundaries are not morpheme boundaries, and we only split whitespace |
 | Morphology-aware vocabulary | [TamilTok](https://aclanthology.org/2026.dravidianlangtech-1.7/) (DravidianLangTech 2026) puts explicit morpheme structure into tokenizer training and reports gains in alignment *and* downstream performance; MorphTok (Brahma et al. 2025) curated word sets; VerChol grammar-first reaches Tamil fertility 1.86 at 32,991 vocab | TamilTok's **TamilMorph** (480,000+ morphologically segmented word forms) supplies the boundary labels, and [ThamizhiMorph](https://github.com/sarves/thamizhi-morph) (open-source Tamil FST analyser/generator) can supply stems and affixes to seed the base vocab or constrain merges across morpheme boundaries |
+
+#### Measured and rejected: splitting digits individually
+
+Changing the pretokenizer's number rule from `(?:\p{N}\p{M}*)+` to `\p{N}\p{M}*`
+makes each digit its own chunk, so `2026` goes from one token to four. Trained
+and scored end to end, both models on the same corpus at 30K merges with the
+dummy prefix:
+
+| | wiki B/tok | wiki tok/word | IndicCorp B/tok |
+|---|---:|---:|---:|
+| digit runs (shipped) | **13.294** | **1.783** | **13.255** |
+| one digit per chunk | 12.843 | 1.846 | 13.055 |
+| cost | **-3.4%** | +3.5% | **-1.5%** |
+
+**Rejected, and the interesting part is why the measurement does not settle
+it.** The cost is real and measured. The benefit — that a model must learn to
+compose digits rather than memorise whole numbers, which is what Singh & Strouse
+tie ~20% arithmetic swings to — is a downstream claim, and this repository has
+no downstream measurement at all. Section 7.2 is explicit that bytes/token is
+not a reliable proxy for the thing this would buy.
+
+So this is a priced option, not a resolved question: 1.5-3.4% compression for
+arithmetic robustness. Anyone with the eval harness to measure the second half
+should re-run it; it is a one-line pretokenizer change and a retrain. The
+shipped models keep digit runs.
+
+Not a coincidence that this is the same reason the whole document optimises a
+metric it admits is imperfect. The honest position is that the tokenization
+questions worth answering are the ones needing a model, and this repository has
+not built one.
 
 ### 7.5 Vocabulary size and composition
 

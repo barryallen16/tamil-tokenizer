@@ -37,3 +37,5 @@ analysis/
 # Temporary files
 *.tmp
 *.bak
+morphscore_*.csv
+morphscore_results.json

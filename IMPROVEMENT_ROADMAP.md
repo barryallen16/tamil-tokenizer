@@ -796,6 +796,44 @@ social text rather than Wikipedia, this is the biggest untested item here.
 | Sandhi-aware tokenization | [Agathiyam](https://openreview.net/forum?id=r3ViBkH9ic) (ICLR 2026 submission, **unrefereed**; the PDF sits behind OpenReview's browser check, so its numbers could not be verified here); [BHARATI](https://arxiv.org/html/2607.23319v1) | Tamil sandhi means whitespace boundaries are not morpheme boundaries, and we only split whitespace |
 | Morphology-aware vocabulary | [TamilTok](https://aclanthology.org/2026.dravidianlangtech-1.7/) (DravidianLangTech 2026) puts explicit morpheme structure into tokenizer training and reports gains in alignment *and* downstream performance; MorphTok (Brahma et al. 2025) curated word sets; VerChol grammar-first reaches Tamil fertility 1.86 at 32,991 vocab | TamilTok's **TamilMorph** (480,000+ morphologically segmented word forms) supplies the boundary labels, and [ThamizhiMorph](https://github.com/sarves/thamizhi-morph) (open-source Tamil FST analyser/generator) can supply stems and affixes to seed the base vocab or constrain merges across morpheme boundaries |
 
+### 7.4a Morphological alignment, measured (Tamil, UD_Tamil-TTB)
+
+`scripts/morph_alignment.py`, MorphScore v2, 1,195 scored word forms:
+
+| tokenizer | recall | precision | tokens/char |
+|---|---:|---:|---:|
+| **ours, 120K mixed** | **0.7088** | **0.5318** | **0.2358** |
+| ours, 30K wiki | 0.5129 | 0.2434 | 0.3065 |
+| mBERT | 0.4796 | 0.2857 | 0.4578 |
+
+Against mBERT this is a large margin on the axis mBERT was designed to be good
+at, and the 120K model is better on alignment *and* compression. Worth noting
+that the two general-purpose baselines barely separate on recall despite
+differing 2x on tokens/char — alignment is not just a restatement of
+compactness.
+
+**This measurement also found a real cost in a decision already shipped.** The
+dummy prefix, adopted above for +1.3% compression, *reduces* alignment:
+
+| 30K wiki, differ only by the prefix | recall | precision |
+|---|---:|---:|
+| without prefix (v3) | **0.6352** | **0.3853** |
+| with prefix (v4, shipped) | 0.5129 | 0.2434 |
+
+Compression and morphological alignment are not the same objective, and here
+they genuinely conflict: -19% recall for +1.3% bytes/token. That trade was made
+before this axis existed. It was the right call on the evidence available —
+compression is measurable and alignment was not, and one measured gain beats one
+unmeasured loss — but the 120K model is the one to prefer overall, since it wins
+on both axes against every smaller variant of ours.
+
+**Do not treat any of this as a quality ranking.** Arnett & Bergen (COLING 2025)
+find some evidence that tokenization *quality* explains the agglutinative-vs-fusional
+gap and **none** for morphological alignment, attributing it to dataset size
+instead; Arnett, Hudspeth & O'Connor (ICML 2025) reach the same conclusion across
+70 languages and 7 tasks. Alignment is a description of our boundaries, not
+evidence they are the reason a model would do better.
+
 #### Measured and rejected: splitting digits individually
 
 Changing the pretokenizer's number rule from `(?:\p{N}\p{M}*)+` to `\p{N}\p{M}*`

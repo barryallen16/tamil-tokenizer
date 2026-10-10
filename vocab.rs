@@ -291,14 +291,25 @@ impl TamilTokenizer {
     }
 
     pub fn print_stats(&self) {
+        // These buckets must sum to vocab_size(). `க்ஷ` is both a ligature and a
+        // conjunct stem, so it is pushed once and counted once: 529 is how many
+        // tokens *look* like conjunct stems, but one of them is already in the
+        // ligature row. The old numbers here summed to 1,136 against an actual
+        // 1,135, which is how the README inherited a wrong total.
         println!("Total vocabulary size: {}", self.vocab.len());
         println!("Byte-level tokens (all 256 bytes, GPT-2 style): 256");
-        println!("Tamil consonant+vowel clusters: 276");
-        println!("Standalone Tamil characters: 39");
-        println!("Common compound ligatures: 15");
-        println!("Conjunct stems (consonant+virama+consonant): 529");
+        println!("Independent vowels: 12");
+        println!("Standalone consonants: 23");
+        println!("Consonant+vowel clusters (23x12): 276");
+        println!("Special characters: 4");
+        println!("Compound ligatures: 15");
+        println!("Conjunct stems (added after ligature dedup): 528");
         println!("Tamil digits: 10");
         println!("Extra Tamil characters: 11");
+        println!(
+            "Sum of the above: {}",
+            256 + 12 + 23 + 276 + 4 + 15 + 528 + 10 + 11
+        );
 
         // Show mapping examples
         println!("\n=== Character Mapping Examples ===");

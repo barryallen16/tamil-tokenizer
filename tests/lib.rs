@@ -754,33 +754,33 @@ mod tests {
 ஒரு பற்றி மற்றும் இருந்து
 ";
 
-#[test]
-fn trainer_matches_brute_force_greedy_bpe() {
-    // The tracked sample corpus, not a synthetic one. A stale heap entry
-    // only has to be reconciled when a pair loses *part* of its count, which
-    // needs that pair to occur in several distinct words. Twelve repeated
-    // lines drop counts straight to zero instead (measured: 1 stale entry
-    // over 150 merges), and the branch this test exists to cover is never
-    // reached. The sample corpus reaches it ~124 times.
-    //
-    // Several merge counts, not just one. The heap defect shows up at
-    // different densities: early merges are sparse and rarely go stale, late
-    // ones are dense and go stale constantly. A single count could sit in a
-    // range where the bug is invisible. 50 is sparse, 150 is where the
-    // defect was originally found, 400 is dense enough that most pairs have
-    // been touched by several merges.
-    const MERGE_COUNTS: [usize; 3] = [50, 150, 400];
-    let corpus = std::fs::read_to_string(CORPUS).expect("the sample corpus is tracked in git");
+    #[test]
+    fn trainer_matches_brute_force_greedy_bpe() {
+        // The tracked sample corpus, not a synthetic one. A stale heap entry
+        // only has to be reconciled when a pair loses *part* of its count, which
+        // needs that pair to occur in several distinct words. Twelve repeated
+        // lines drop counts straight to zero instead (measured: 1 stale entry
+        // over 150 merges), and the branch this test exists to cover is never
+        // reached. The sample corpus reaches it ~124 times.
+        //
+        // Several merge counts, not just one. The heap defect shows up at
+        // different densities: early merges are sparse and rarely go stale, late
+        // ones are dense and go stale constantly. A single count could sit in a
+        // range where the bug is invisible. 50 is sparse, 150 is where the
+        // defect was originally found, 400 is dense enough that most pairs have
+        // been touched by several merges.
+        const MERGE_COUNTS: [usize; 3] = [50, 150, 400];
+        let corpus = std::fs::read_to_string(CORPUS).expect("the sample corpus is tracked in git");
 
-    for merges in MERGE_COUNTS {
-        let expected = brute_force_merges(&base_vocab(), &corpus, merges);
-        let (actual, _) = train_once(base_vocab(), CORPUS, merges);
-        assert_eq!(
-            actual, expected,
-            "incremental trainer diverged from greedy BPE at {merges} merges"
-        );
+        for merges in MERGE_COUNTS {
+            let expected = brute_force_merges(&base_vocab(), &corpus, merges);
+            let (actual, _) = train_once(base_vocab(), CORPUS, merges);
+            assert_eq!(
+                actual, expected,
+                "incremental trainer diverged from greedy BPE at {merges} merges"
+            );
+        }
     }
-}
 
     /// Two runs over the same corpus must produce the same model.
     ///

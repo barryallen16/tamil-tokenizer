@@ -4,7 +4,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ## Features
 
-- **Tamil-aware base vocabulary** — 607 tokens with no training: 256 byte tokens, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 39 standalone Tamil characters, and 21 digits and symbols
+- **Tamil-aware base vocabulary** — 1,135 tokens with no training: 256 byte tokens, 12 independent vowels, 23 standalone consonants, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 4 special characters (`ஃ ஂ ௐ ௗ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 528 further conjunct stems, 10 Tamil digits and 11 extra characters. The conjunct stems are what actually moved compression — Tamil joins consonants constantly (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`) and each one cost 3-4 tokens before
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
 - **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores
@@ -44,6 +44,10 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── scripts/prefix_ab.py          # A/B the line-initial dummy-prefix fix
 ├── scripts/colab_bpb.py          # Bits-per-byte vs general-purpose tokenizers (GPU)
 ├── scripts/publish_hf.py         # Publish to the Hub with a measured model card
+├── scripts/morph_alignment.py    # MorphScore: are our boundaries on morpheme edges?
+├── scripts/spm_ab.py             # SentencePiece unigram-vs-bpe reference A/B
+├── scripts/extract_wiki_text.py  # Legacy extractor, superseded by extract_wiki_fast.py
+├── vocabcount.rs                 # Prints the base-vocab breakdown and checks it sums
 └── data/tamil_corpus.txt   # 117-line sample corpus
 ```
 
@@ -57,7 +61,14 @@ re-derives its number rather than trusting a stored value:
 | `vocab_utilization.py` | How much of a trained vocab is used at all, and which merge ranks carry the weight |
 | `prefix_ab.py` | Whether prepending a space to every training line helps. Runs both arms and prints ADOPT/REJECT |
 | `colab_bpb.py` | Bits-per-byte against mBERT, Llama 3 and `cl100k_base`. Needs a GPU; runs in Colab |
+| `morph_alignment.py` | MorphScore against UD_Tamil-TTB: do token boundaries land on morpheme boundaries? |
 | `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
+
+`cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and
+asserts the buckets sum to the real vocab size. That breakdown is maintained by
+hand and had drifted from the builder in `vocab.rs` — it summed to 1,136 against
+an actual 1,135, which is where a stale "607 tokens" figure in this file came
+from.
 
 A caveat `colab_bpb.py` enforces on itself: a scoring LM's **own** tokenizer must
 never appear in the comparison table. It was trained on its own segmentation, so
@@ -504,6 +515,42 @@ Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
 byte-fallback BPE with no Tamil vocabulary, so both collapse to roughly one
 token per UTF-8 byte, and Tamil is a 3-byte script. Which byte-level BPE you use
 is irrelevant; whether it has Tamil vocabulary is everything.
+
+### Morphological alignment
+
+Compression alone does not mean the boundaries are meaningful, so
+`scripts/morph_alignment.py` scores MorphScore over 1,195 Tamil word forms from
+UD_Tamil-TTB, which carry gold morpheme segmentations:
+
+| tokenizer | boundaries on morpheme edges (recall) | precision | tokens/char |
+|---|---:|---:|---:|
+| **this repo (120K)** | **0.709** | **0.532** | 0.236 |
+| this repo (30K wiki) | 0.513 | 0.243 | 0.307 |
+| mBERT | 0.480 | 0.286 | 0.458 |
+
+Worth noting that mBERT and our 30K model sit close on recall despite differing
+2x on tokens/char — boundary quality is not a restatement of compactness.
+
+**This measurement also exposed a trade-off in a shipped decision.** The dummy
+prefix, adopted above for +1.3% compression, *reduces* alignment:
+
+| 30K wiki, differ only by the prefix | recall | precision |
+|---|---:|---:|
+| without prefix (v3) | **0.635** | **0.385** |
+| with prefix (v4, shipped) | 0.513 | 0.243 |
+
+Compression and alignment are different objectives and here they genuinely
+conflict: -19% recall for +1.3% bytes/token. That was the right call on the
+evidence available at the time — compression was measurable and alignment was
+not — but it is now a measured cost, not a hidden one. The 120K model is
+preferred overall because it beats every smaller variant on both axes.
+
+**Do not read this as a quality ranking.** Arnett & Bergen (COLING 2025) find
+some evidence that tokenization *quality* explains the agglutinative-vs-fusional
+performance gap and **none** for morphological alignment, attributing it to
+dataset size instead; Arnett, Hudspeth & O'Connor (ICML 2025) reach the same
+conclusion across 70 languages and 7 tasks. Alignment describes our boundaries;
+it is not evidence they are why a model would perform better.
 
 ## Hugging Face export
 

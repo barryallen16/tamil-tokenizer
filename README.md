@@ -1,6 +1,6 @@
 # Tamil Tokenizer
 
-A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil text**, written in Rust. Designed for training and using custom tokenizers on Tamil corpora with an Aho-Corasick-based fast encoder.
+A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil text**, written in Rust. Designed for training and using custom tokenizers on Tamil corpora, with a fast encoder and an export that produces the same token IDs as the Hugging Face version.
 
 ## Features
 
@@ -22,7 +22,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── model.rs                 # The canonical model both engines read
 ├── pretokenizer.rs         # TamilPretokenizer — regex-based text splitting
 ├── trainer.rs              # OptimizedBPETrainer — parallel BPE training
-├── encoder.rs              # FastBPEEncoder — encode/decode with Aho-Corasick
+├── encoder.rs              # FastBPEEncoder — encode/decode over the canonical model
 ├── train.rs                # CLI: train a tokenizer from a corpus file
 ├── encode.rs               # CLI: encode text to token IDs
 ├── decode.rs               # CLI: decode token IDs back to text
@@ -42,6 +42,8 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── scripts/fetch_indiccorp.py    # Pull a byte range of IndicCorpV2 Tamil
 ├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
 ├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
+├── scripts/bench_field.py        # Scores this tokenizer against the field on one corpus
+├── scripts/fetch_transcripts.py   # Tamil video transcripts, cleaned and split by video
 ├── scripts/verify_install.py     # Checks the export loads through AutoTokenizer
 ├── scripts/vocab_utilization.py  # How much of a trained vocab is actually used
 ├── scripts/prefix_ab.py          # A/B the line-initial dummy-prefix fix
@@ -67,6 +69,8 @@ a stored value:
 | `colab_bpb.py` | Bits-per-byte against mBERT, Llama 3 and `cl100k_base`. Needs a GPU; runs in Colab |
 | `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
 | `verify_install.py` | Whether the export loads through `AutoTokenizer` with bos, eos, pad and unk resolved |
+| `bench_field.py` | How this tokenizer compares with the field on one corpus, same code path for everyone |
+| `fetch_transcripts.py` | Brings in a third split: Tamil video captions, split by video |
 | `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
 
 `cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and
@@ -482,6 +486,41 @@ Three things this shows:
   IndicCorp (16.386 vs 16.431), both within 0.6%. A tie, not a win; the earlier
   revision of this table showed the mix ahead on both and overstated the margin.
 
+### Video transcripts: the third split
+
+Wikipedia and IndicCorp are both formal written prose, and both are what the tokenizer was trained on.
+`scripts/fetch_transcripts.py` adds a third split that is neither: 1,400 Tamil YouTube videos, 896,641 captions, split by video so that no two halves share a speaker.
+
+```bash
+python scripts/fetch_transcripts.py          # download, clean, split
+python scripts/bench_field.py data/transcripts/test.txt
+```
+
+The held-out half, scored with the same harness and the same library as every other number in this file:
+
+| tokenizer | transcripts B/tok | transcripts tok/word | wiki tok/word |
+|---|---:|---:|---:|
+| **ours 120K** | **12.553** | **1.581** | **1.593** |
+| ours 30K | 9.049 | 2.193 | 1.807 |
+| `indictok-256k` | 10.909 | 1.819 | 2.022 |
+| `sarvam-30b` | 8.226 | 2.413 | 2.514 |
+| `BrahmicTokenizer-131K` | 6.564 | 3.024 | 3.150 |
+
+First on both, but the lead narrows: 21% over the nearest competitor on Wikipedia, 13% here.
+The base vocabulary carries most of the way and not all of it, and the corpus is full of a form the training data never had: English words with Tamil glued inside them, mid-word, such as `thatடiled` or `motorரolaலயோ`.
+
+On the 6,890 lines of that split that are Latin-heavy, the order changes:
+
+| tokenizer | tok/word |
+|---|---:|
+| `indictok-256k` | 1.866 |
+| **ours 120K** | 1.903 |
+| `sarvam-30b` | 2.219 |
+
+This is the one place we lose, and it is the place this corpus is for.
+Nothing in 236 MB of Wikipedia and IndicCorp looks like a fused Tamil-English word.
+
+
 ### Cost of a large vocab
 
 | Model | Merges | Vocab | wiki MB/s | IndicCorp MB/s |
@@ -634,7 +673,7 @@ both instead of leaving them to fail silently in Python:
   BPE has no base-symbol set: it starts from single characters and can only reach
   a token through merges. The exporter adds 819 promotion merges that build each
   such token from its characters, ranked by decreasing token length so HF
-  resolves overlaps by longest match the way our automaton does. It also appends
+  resolves overlaps by longest match the way the base vocabulary does. It also appends
   the 4 characters (`ோ`, `ூ`, `ொ`, `ௌ`) that the base vocab lacks but the
   corpus contains.
 

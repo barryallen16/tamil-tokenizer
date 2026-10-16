@@ -44,7 +44,9 @@ RESULTS = os.path.join(ROOT, 'output', 'downstream')
 # The three tokenizers. Ours is the published model; the other two are the
 # strongest general-purpose Tamil tokenizers available on the Hub.
 TOKENIZERS = {
-    'ours': ('barryallen16/tamil-tokenizer-wiki', 'tamil_tokenizer_wiki_120k_mixed'),
+    # The published repository root holds the default 120K model, so no
+    # subfolder is needed for it.
+    'ours': ('barryallen16/tamil-tokenizer-wiki', None),
     'indictok': ('vivekvar/indictok-256k', None),
     'mbert': ('bert-base-multilingual-cased', None),
 }

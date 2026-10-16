@@ -66,9 +66,10 @@ def build_corpora():
 
     ic_raw = os.path.join(DATA, 'indiccorp_ta.txt')
     if not os.path.exists(os.path.join(DATA, 'indiccorp', 'test.txt')):
-        if not os.path.exists(ic_raw):
-            fetch('https://huggingface.co/datasets/ai4bharat/IndicCorpV2/resolve/main/'
-                  'data/ta.txt', ic_raw)
+        # A byte range of the file, not the whole thing. The full Tamil file is
+        # far larger than the slice this project trains on.
+        run([sys.executable, os.path.join(ROOT, 'scripts', 'fetch_indiccorp.py'),
+             '--limit-mb', '400', '--out', ic_raw])
         run([sys.executable, os.path.join(ROOT, 'scripts', 'prep_corpus.py'),
              ic_raw, os.path.join(DATA, 'indiccorp')])
 

@@ -98,6 +98,8 @@ def build_corpora():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--tokens', type=int, default=20_000_000)
+    ap.add_argument('--bytes', type=int, default=0,
+                    help='match training bytes instead of training tokens')
     ap.add_argument('--train-mb', type=int, default=200)
     ap.add_argument('--eval-mb', type=int, default=3)
     ap.add_argument('--context', type=int, default=512)
@@ -130,6 +132,8 @@ def main():
                '--d-model', str(args.d_model), '--layers', str(args.layers),
                '--heads', str(args.heads), '--batch', str(args.batch),
                '--lr', str(args.lr)]
+        if args.bytes:
+            cmd += ['--bytes', str(args.bytes)]
         for e in evals:
             cmd += ['--eval-file', e]
         start = time.time()
@@ -137,7 +141,10 @@ def main():
         print(f'  {name} took {time.time() - start:.0f}s', flush=True)
 
     print('\n=== comparison ===', flush=True)
-    run([sys.executable, os.path.join(ROOT, 'scripts', 'downstream_lm.py'), '--report'])
+    report = [sys.executable, os.path.join(ROOT, 'scripts', 'downstream_lm.py'), '--report']
+    if args.bytes:
+        report.append('--byte-run')
+    run(report)
     return 0
 
 

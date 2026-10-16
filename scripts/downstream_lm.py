@@ -166,6 +166,9 @@ def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log
     import torch
 
     torch.manual_seed(seed)
+    # The shuffle below is numpy's, so seeding torch alone does not make two
+    # runs with the same --seed repeat.
+    np.random.seed(seed)
     cuda = torch.cuda.is_available()
     device = next(model.parameters()).device
     micro = micro_batch or batch
@@ -219,7 +222,9 @@ def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log
             print(f'  step {step + 1}/{steps} loss {running / log_every:.4f} '
                   f'tokens {done / 1e6:.2f}M elapsed {time.time() - start:.0f}s', flush=True)
             running = 0.0
-    return time.time() - start
+    # Whole steps only, so the tokens actually consumed can be short of the
+    # budget by less than one step.
+    return time.time() - start, steps * batch * (context - 1)
 
 
 def evaluate(model, tokens, context, batch, limit):
@@ -284,6 +289,8 @@ def main():
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--seed', type=int, default=1234)
     ap.add_argument('--report', action='store_true')
+    ap.add_argument('--byte-run', action='store_true',
+                    help='with --report, show the byte-matched runs')
     args = ap.parse_args()
 
     if not args.eval_file:
@@ -294,7 +301,7 @@ def main():
     os.makedirs(RESULTS, exist_ok=True)
 
     if args.report:
-        report()
+        report('_bytes' if args.byte_run else '')
         return 0
 
     import torch
@@ -334,18 +341,26 @@ def main():
     params = sum(p.numel() for p in model.parameters())
     print(f'  vocab {vocab}, parameters {params / 1e6:.1f}M, device {device}')
 
-    # Bytes per token, measured on the held-out text. It turns a byte budget
-    # into the number of training tokens that cover it.
-    bytes_per_token = (sum(b for _, _, b in eval_ids) /
-                       max(1, sum(len(i) for _, i, _ in eval_ids)))
+    # Bytes per token on the training text, which is the text the budget is
+    # about. Measuring it on the held-out splits instead overstates it by
+    # about 14%, because they mix wiki and transcripts while the training
+    # corpus also carries the less compressible IndicCorp prose.
+    bytes_per_token = train_bytes / max(1, len(train_ids))
     if args.bytes:
         # Same text for every tokenizer: take the tokens that cover the budget.
         budget_tokens = min(int(args.bytes / bytes_per_token), len(train_ids))
+        covered = budget_tokens * bytes_per_token
+        if covered < 0.98 * args.bytes:
+            print(f'  warning: the corpus offers {covered / 1e6:.0f} MB of the '
+                  f'{args.bytes / 1e6:.0f} MB budget', flush=True)
     else:
         budget_tokens = min(args.tokens, len(train_ids))
 
-    elapsed = train(model, train_ids, budget_tokens, args.context, args.batch, args.lr,
-                    args.seed, micro_batch=args.micro_batch)
+    elapsed, consumed = train(model, train_ids, budget_tokens, args.context, args.batch,
+                              args.lr, args.seed, micro_batch=args.micro_batch)
+    # The byte-matched comparison is only a comparison if this is the same
+    # for every tokenizer, so it is reported from what was consumed.
+    bytes_seen = consumed * bytes_per_token
 
     scores = {}
     for label, ids, nbytes in eval_ids:
@@ -362,16 +377,21 @@ def main():
         'tokenizer': args.tokenizer,
         'vocab': vocab,
         'parameters': params,
-        'train_tokens': budget_tokens,
-        'train_bytes_seen': round(budget_tokens * bytes_per_token),
+        'train_tokens': consumed,
+        'train_bytes_seen': round(bytes_seen),
+        'bytes_per_token_train': bytes_per_token,
         'scores': scores,
         'seconds': elapsed,
         'args': vars(args),
     }
-    path = os.path.join(RESULTS, f'{args.tokenizer}.json')
+    # A byte-matched run must not overwrite the token-budget result the README
+    # quotes, so the two budgets get different files.
+    suffix = '_bytes' if args.bytes else ''
+    path = os.path.join(RESULTS, f'{args.tokenizer}{suffix}.json')
     with open(path, 'w') as f:
         json.dump(result, f, indent=2)
-    print(f'\n  {args.tokenizer}: {budget_tokens} training tokens, {elapsed:.0f}s')
+    print(f'\n  {args.tokenizer}: {consumed} training tokens, '
+          f'{bytes_seen / 1e6:.0f} MB seen, {elapsed:.0f}s')
     for label, s in scores.items():
         print(f'    {label}: bits/byte {s["bits_per_byte"]:.4f}  '
               f'nats/token {s["nll_nats_per_token"]:.4f}  '
@@ -380,24 +400,25 @@ def main():
     return 0
 
 
-def report():
+def report(suffix=''):
     """Print the comparison."""
     rows = []
     for name in TOKENIZERS:
-        path = os.path.join(RESULTS, f'{name}.json')
+        path = os.path.join(RESULTS, f'{name}{suffix}.json')
         if os.path.exists(path):
             rows.append(json.load(open(path)))
     if not rows:
         print('no results yet')
         return
     labels = list(rows[0].get('scores', {}).keys())
-    head = f'{"tokenizer":12} {"vocab":>8} {"params":>9} {"train tok":>10} {"sec":>6}'
+    head = f'{"tokenizer":12} {"vocab":>8} {"params":>9} {"train tok":>10} {"MB":>5} {"sec":>6}'
     for label in labels:
         head += f' | {label} bpb  tok/byte'
     print(head)
     for r in sorted(rows, key=lambda r: r['scores'][labels[0]]['bits_per_byte']):
         line = (f'{r["tokenizer"]:12} {r["vocab"]:>8} {r["parameters"] / 1e6:>8.1f}M '
-                f'{r["train_tokens"]:>10} {r["seconds"]:>6.0f}')
+                f'{r["train_tokens"]:>10} {r["train_bytes_seen"] / 1e6:>5.0f} '
+                f'{r["seconds"]:>6.0f}')
         for label in labels:
             s = r['scores'][label]
             line += f' | {s["bits_per_byte"]:6.4f}  {s["tokens_per_byte"]:.4f}'

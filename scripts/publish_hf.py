@@ -35,6 +35,15 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_REPO = 'barryallen16/tamil-tokenizer-wiki'
 
+# The model whose artifacts also go to the repository root, so that
+# `AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")` loads
+# without a subfolder argument. It has to be the model the README calls the
+# default, or the one-liner and the documentation disagree.
+DEFAULT_KEY = '120k'
+
+# Files the Hub repository root needs for AutoTokenizer to load it.
+ROOT_FILES = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json']
+
 SPLITS = [
     ('wiki', 'data/wiki/test.txt'),
     ('IndicCorp', 'data/indiccorp/test.txt'),
@@ -104,6 +113,12 @@ def verify_export(model_json, hf_dir, corpus):
     return ids, dec
 
 
+def verify_install(hf_dir):
+    """Returns (ok, output). Checks the export loads the way a user loads it."""
+    p = run([sys.executable, os.path.join(ROOT, 'scripts/verify_install.py'), hf_dir])
+    return p.returncode == 0, (p.stdout + p.stderr)
+
+
 def build_card(measured, export_stats):
     rows = []
     for name, m in measured.items():
@@ -117,6 +132,14 @@ def build_card(measured, export_stats):
                      f"Load with this repo's Rust encoder. |")
         files.append(f"| `{name.replace('.json', '')}_hf/tokenizer.json` | "
                      f"Hugging Face `tokenizers` format, loadable from Python. |")
+        files.append(f"| `{name.replace('.json', '')}_hf/tokenizer_config.json` | "
+                     f"`AutoTokenizer` settings and special-token names. |")
+        files.append(f"| `{name.replace('.json', '')}_hf/special_tokens_map.json` | "
+                     f"bos, eos, pad and unk. |")
+    files.append(f"| `tokenizer.json`, `tokenizer_config.json`, "
+                 f"`special_tokens_map.json` | The default 120K model at the "
+                 f"repository root, so `AutoTokenizer.from_pretrained` loads it "
+                 f"without a subfolder. |")
 
     ids = [v for s in export_stats.values() for k, v in s.items() if k == 'ids']
     dec = [v for s in export_stats.values() for k, v in s.items() if k == 'decode']
@@ -177,17 +200,39 @@ under 1% either way.
 ## Use
 
 ```python
+from transformers import AutoTokenizer
+
+tok = AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")
+tok.encode("வணக்கம் இது தமிழ்").input_ids
+```
+
+The 120K mixed model sits at the repository root. The 30K wiki model is in
+`tamil_tokenizer_wiki_hf/`:
+
+```python
+tok = AutoTokenizer.from_pretrained(
+    "barryallen16/tamil-tokenizer-wiki", subfolder="tamil_tokenizer_wiki_hf"
+)
+```
+
+Without `transformers`:
+
+```python
 from tokenizers import Tokenizer
 
 tok = Tokenizer.from_file("tamil_tokenizer_wiki_hf/tokenizer.json")
 tok.encode("வணக்கம் இது தமிழ்").ids
 ```
 
-The bare `.json` files are the trainer's own format (`{{vocab, merges, metadata}}`)
-and only load through the Rust encoder. Convert with:
+This tokenizer adds no BOS or EOS. `tokenizer.bos_token_id` and
+`tokenizer.eos_token_id` are available for a training loop that wants them.
+
+The bare `.json` files at the top level are the trainer's own format
+(`{{vocab, merges, metadata}}`) and only load through the Rust encoder.
+Convert with:
 
 ```bash
-cargo run --release --bin export_hf -- tamil_tokenizer_wiki.json hf_export/out 512
+cargo run --release --bin export_hf -- tamil_tokenizer_wiki.json hf_export/out
 ```
 
 ## Training
@@ -201,17 +246,18 @@ preprocessing step, so the two published artifacts are comparable.
 
 ## Export fidelity
 
-`tokenizer.json` round-trips losslessly — {dec_lo} decode fidelity on both
-held-out splits, checked before every publish — but reproduces {id_range} of the
-Rust encoder's token IDs.
+`tokenizer.json` round-trips losslessly: {dec_lo} decode fidelity on both
+held-out splits, checked before every publish. It reproduces {id_range} of the
+Rust encoder's token IDs, and the gap is in the encoder.
 
-The cause is the starting symbol set. This encoder segments into base clusters
-first, then applies merges by rank. HF's BPE always starts from single
-characters, so identical merge lists produce different segmentations:
-`வள்ளச்சி` is one token here and ` வள்ள` + `ச்சி` there. No merges are lost in
-the export; all of them are present and in rank order.
+No merges are lost in the export; all of them are present and in rank order.
+HF's `BPE` model starts from single characters and merges every occurrence of
+the best-ranked pair per pass. The Rust encoder starts from the 1,135 base
+clusters and merges one occurrence per pass. Reimplementing HF's algorithm
+over this merge list reproduces its IDs exactly, so the two engines converge
+once the encoder takes those semantics.
 
-Token count differs by about 0.5% against the Rust encoder. If you need exact
+Token count differs by about 1.7% against the Rust encoder. If you need exact
 ID parity, use the Rust encoder. Full write-up in Known Limit 6 of
 `IMPROVEMENT_ROADMAP.md`.
 """
@@ -232,14 +278,15 @@ def main():
     ap.add_argument('--corpora', action='store_true', help='also upload the training corpora')
     args = ap.parse_args()
 
+    # The token is only needed to upload. A dry run should not need one.
     token = os.environ.get('HF_TOKEN')
-    if not token:
+    if args.apply and not token:
         sys.exit('HF_TOKEN is not set.\n'
                  '  Linux/macOS: export HF_TOKEN=hf_xxx\n'
                  '  Colab:       from google.colab import userdata; '
                  'os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")')
     if not args.apply:
-        print('DRY RUN — nothing will be uploaded. Add --apply to publish.\n')
+        print('DRY RUN - nothing will be uploaded. Add --apply to publish.\n')
 
     models = [m for m in MODELS if not args.only or m['key'] == args.only]
     missing = [m['local'] for m in models if not os.path.exists(os.path.join(ROOT, m['local']))]
@@ -255,10 +302,21 @@ def main():
         print(f"    corpus present: {os.path.exists(os.path.join(ROOT, m['corpus']))}")
 
         hf_dir = os.path.join(tempfile.gettempdir(), 'hfpub_' + m['key'])
-        exp = run([os.path.join(ROOT, 'target/release/export_hf.exe'), path, hf_dir, '512'])
+        # No explicit model_max_length: the export's default is unlimited, and
+        # a published tokenizer should not truncate a caller's input.
+        exp = run([os.path.join(ROOT, 'target/release/export_hf.exe'), path, hf_dir])
         if exp.returncode != 0:
             sys.exit(f'export_hf failed: {exp.stderr[:400]}')
         print('   ', exp.stdout.splitlines()[0])
+
+        # Gate: the export has to load the way a user loads it.
+        ok, out = verify_install(hf_dir)
+        for line in out.splitlines():
+            if line.strip().startswith('[FAIL]'):
+                print('   ', line.strip())
+        print(f'    install check: {"ok" if ok else "FAILED"}')
+        if not ok:
+            failures.append(f'{m["name"]}: install check failed')
 
         # Gate: decode must be perfect on every split, or this does not ship.
         decode, ids = [], []
@@ -287,15 +345,18 @@ def main():
         measured[m['name']] = m_measured
 
         uploads[m['name'] + '.json'] = path
-        uploads[m['name'] + '_hf/tokenizer.json'] = os.path.join(
-            hf_dir, 'tokenizer.json')
+        for f in ROOT_FILES:
+            uploads[m['name'] + '_hf/' + f] = os.path.join(hf_dir, f)
+        if m['key'] == DEFAULT_KEY:
+            for f in ROOT_FILES:
+                uploads[f] = os.path.join(hf_dir, f)
 
     if failures:
-        print('\nREFUSING TO UPLOAD — decode fidelity below 100%:')
+        print('\nREFUSING TO UPLOAD:')
         for f in failures:
             print('   ', f)
-        print('\nA tokenizer that silently corrupts text is worse than none.')
-        print('Fix the decoder in export_hf.rs and re-run.')
+        print('\nA tokenizer that corrupts text or will not load is worse than none.')
+        print('Fix export_hf.rs, or scripts/verify_install.py, and re-run.')
         return 1
 
     card = build_card(measured, export_stats)

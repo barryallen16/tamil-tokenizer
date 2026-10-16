@@ -307,7 +307,10 @@ def main():
     evals = []
     for path in args.eval_file:
         lines = read_lines(path, args.eval_mb * 1024 * 1024)
-        label = os.path.splitext(os.path.basename(path))[0]
+        # The label names the split, not the file. Two splits are both called
+        # test.txt, and a report that calls them both "test" is unreadable.
+        parent = os.path.basename(os.path.dirname(path))
+        label = f'{parent}/{os.path.splitext(os.path.basename(path))[0]}'
         evals.append((label, lines, path))
     print(f'  train {len(train_lines)} lines, eval ' +
           ', '.join(f'{len(l)} lines' for _, l, _ in evals))

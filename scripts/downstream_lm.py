@@ -152,7 +152,7 @@ def build_model(vocab_size, d_model, n_layers, n_heads, context):
     return MiniLM()
 
 
-def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log_every=50):
+def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log_every=None):
     """Train on a shuffled stream of tokens.
 
     The logits are batch x context x vocab, which is gigabytes for a large
@@ -164,12 +164,15 @@ def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log
 
     torch.manual_seed(seed)
     cuda = torch.cuda.is_available()
+    device = next(model.parameters()).device
     micro = micro_batch or batch
     accum = max(1, batch // micro)
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1, betas=(0.9, 0.95))
     scaler = torch.amp.GradScaler('cuda', enabled=cuda)
     steps = max(1, budget // (batch * (context - 1)))
     warmup = max(1, steps // 20)
+    if log_every is None:
+        log_every = max(1, steps // 10)
 
     def lr_at(step):
         if step < warmup:
@@ -197,7 +200,7 @@ def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log
                     cursor = 0
                 batch_idx.append(stream[cursor:cursor + context])
                 cursor += context
-            x = torch.from_numpy(np.stack(batch_idx).astype(np.int64))
+            x = torch.from_numpy(np.stack(batch_idx).astype(np.int64)).to(device)
             with torch.autocast('cuda', dtype=torch.float16, enabled=cuda):
                 logits = model(x[:, :-1])
                 loss = torch.nn.functional.cross_entropy(
@@ -224,13 +227,14 @@ def evaluate(model, tokens, context, batch, limit):
     nll = 0.0
     count = 0
     cuda = torch.cuda.is_available()
+    device = next(model.parameters()).device
     with torch.no_grad():
         for i in range(0, limit - context, batch * context):
             chunk = tokens[i:i + batch * context]
             rows = chunk[:min(len(chunk) // context, batch) * context]
             if len(rows) < context:
                 break
-            x = torch.from_numpy(rows.astype(np.int64)).view(-1, context)
+            x = torch.from_numpy(rows.astype(np.int64)).view(-1, context).to(device)
             with torch.autocast('cuda', dtype=torch.float16, enabled=cuda):
                 logits = model(x[:, :-1])
                 loss = torch.nn.functional.cross_entropy(
@@ -319,8 +323,10 @@ def main():
 
     vocab = tok.vocab_size
     model = build_model(vocab, args.d_model, args.layers, args.heads, args.context)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = model.to(device)
     params = sum(p.numel() for p in model.parameters())
-    print(f'  vocab {vocab}, parameters {params / 1e6:.1f}M')
+    print(f'  vocab {vocab}, parameters {params / 1e6:.1f}M, device {device}')
 
     # Bytes per token, measured on the held-out text. It turns a byte budget
     # into the number of training tokens that cover it.

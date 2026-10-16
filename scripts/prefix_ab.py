@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A/B the line-initial prefix problem. See roadmap Section 1 and Known Limit 4.
+"""A/B the line-initial prefix problem.
 
 The pretokenizer attaches one leading space to a mid-line chunk (` கணிதம்`)
 but not to the first chunk of a line (`கணிதம்`). Those are different symbol
@@ -48,8 +48,8 @@ def train(corpus, merges, out):
 def score(model, corpus):
     """Returns bytes/token from score.rs. Its stdout is a tab-separated row;
     column 3 is bytes/token. Read from the file, not from the MB column:
-    score.rs prints MB to one decimal, which the roadmap already flagged as
-    having inflated a published number by 0.4%."""
+    score.rs prints MB to one decimal, which has inflated a published number
+    by 0.4% before."""
     out = subprocess.run([SCORE_BIN, model, corpus], check=True,
                          capture_output=True, text=True, encoding='utf-8').stdout
     return float(out.strip().split('\t')[3])

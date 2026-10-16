@@ -8,7 +8,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
 - **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores
-- **Hugging Face export** — `export_hf` writes `tokenizer.json`, `tokenizer_config.json`, `vocab.json` and `merges.txt`, verified ID-for-ID against Python `tokenizers`
+- **Hugging Face export** — `export_hf` writes `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json` and `merges.txt`, checked against Python `tokenizers` and `transformers`
 - **Special token support** — BOS/EOS, language tags, question/answer markers, and 100 reserved slots (o200k-style layout)
 - **GPT-2 compatible byte mappings** — The exact byte-to-unicode table from GPT-2, so exports match Hugging Face's `ByteLevel`
 
@@ -40,6 +40,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 ├── scripts/fetch_indiccorp.py    # Pull a byte range of IndicCorpV2 Tamil
 ├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
 ├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
+├── scripts/verify_install.py     # Checks the export loads through AutoTokenizer
 ├── scripts/vocab_utilization.py  # How much of a trained vocab is actually used
 ├── scripts/prefix_ab.py          # A/B the line-initial dummy-prefix fix
 ├── scripts/colab_bpb.py          # Bits-per-byte vs general-purpose tokenizers (GPU)
@@ -53,15 +54,17 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 ### The measurement scripts
 
-Four of these exist because a published number stopped being true. Each one
-re-derives its number rather than trusting a stored value:
+These exist because a published number stopped being true, or a published
+artifact stopped loading. Each one re-derives its result rather than trusting
+a stored value:
 
 | script | what it settles |
 |---|---|
 | `vocab_utilization.py` | How much of a trained vocab is used at all, and which merge ranks carry the weight |
 | `prefix_ab.py` | Whether prepending a space to every training line helps. Runs both arms and prints ADOPT/REJECT |
 | `colab_bpb.py` | Bits-per-byte against mBERT, Llama 3 and `cl100k_base`. Needs a GPU; runs in Colab |
-| `morph_alignment.py` | MorphScore against UD_Tamil-TTB: do token boundaries land on morpheme boundaries? |
+| `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
+| `verify_install.py` | Whether the export loads through `AutoTokenizer` with bos, eos, pad and unk resolved |
 | `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
 
 `cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and
@@ -84,19 +87,44 @@ The Hugging Face repo
 publishes two trained tokenizers alongside the training corpora: 30K merges on
 cleaned wiki, and the recommended 120K merges on wiki + IndicCorpV2.
 
+Load the 120K model with one line:
+
+```python
+from transformers import AutoTokenizer
+
+tok = AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")
+tok.encode("வணக்கம் இது தமிழ்").input_ids
+```
+
+The 120K model sits at the repository root. The 30K model is in
+`tamil_tokenizer_wiki_hf/`:
+
+```python
+tok = AutoTokenizer.from_pretrained(
+    "barryallen16/tamil-tokenizer-wiki", subfolder="tamil_tokenizer_wiki_hf"
+)
+```
+
+Without `transformers`, use the `tokenizers` library and the `_hf/` file:
+
+```python
+from tokenizers import Tokenizer
+
+tok = Tokenizer.from_file("tamil_tokenizer_wiki_120k_mixed_hf/tokenizer.json")
+```
+
+To work with the models from Rust, or to retrain, download this repo's own
+format:
+
 ```bash
 REPO=https://huggingface.co/barryallen16/tamil-tokenizer-wiki/resolve/main
 
-# 30K on cleaned wiki (2.7 MB) — this repo's own format
+# 30K on cleaned wiki (2.7 MB)
 curl -L -o output/tamil_tokenizer_wiki.json $REPO/tamil_tokenizer_wiki.json
 
-# 120K mixed (11.7 MB) — the recommended default
+# 120K mixed (11.7 MB), the default
 curl -L -o output/tamil_tokenizer_wiki_120k_mixed.json \
   $REPO/tamil_tokenizer_wiki_120k_mixed.json
-
-# Either one, converted for Python's `tokenizers`
-curl -L -o /tmp/tokenizer.json \
-  $REPO/tamil_tokenizer_wiki_120k_mixed_hf/tokenizer.json
 
 # It loads with this repo's encoder:
 cargo run --release --bin encode -- ./output/tamil_tokenizer_wiki.json "வணக்கம்"
@@ -107,9 +135,12 @@ curl -L -o data/tamil_wiki_corpus.txt $REPO/tamil_wiki_corpus.txt
 ```
 
 The bare `.json` files are this repo's `{vocab, merges, metadata}` format and
-load through the Rust encoder. To use them from Python, fetch the `_hf/`
-`tokenizer.json` variant instead — see "The published models" below for what
-that conversion does and does not preserve.
+load through the Rust encoder. The `_hf/` directories hold the Python-side
+conversion, and "The published models" below covers what that conversion
+does and does not preserve.
+
+This tokenizer adds no BOS or EOS. `tok.bos_token_id` and `tok.eos_token_id`
+are there for a training loop that wants them.
 
 `scripts/evaluate.py` accepts the tokenizer path as an argument and defaults to the
 local `output/tamil_tokenizer.json`.
@@ -174,18 +205,25 @@ python scripts/evaluate.py ./output/tamil_tokenizer.json
 ### 6. Export for Hugging Face
 
 ```bash
-# Writes tokenizer.json, tokenizer_config.json, vocab.json, merges.txt
-cargo run --release --bin export_hf -- ./output/tamil_64k.json ./output/hf64k 512
+# Writes tokenizer.json, tokenizer_config.json, special_tokens_map.json,
+# vocab.json, merges.txt
+cargo run --release --bin export_hf -- ./output/tamil_64k.json ./output/hf64k
+
+# Check the export loads through AutoTokenizer (needs: pip install transformers)
+python scripts/verify_install.py ./output/hf64k
 
 # Confirm Python produces the same IDs (needs: pip install tokenizers)
 cargo build --release --bin encode_lines
 python scripts/verify_hf_export.py ./output/tamil_64k.json ./output/hf64k
 ```
 
-Measured on 12,000 wiki lines, the exported 32K and 64K models match this
-repo's encoder on **99.6% of lines**, and every remaining line differs only in
-how it encodes Latin-1 characters that are byte tokens under GPT-2's table (see
-`Known limits`).
+The third argument to `export_hf` sets `model_max_length`, which is the cap
+`transformers` applies when you pass `truncation=True`. It is unlimited by
+default, so a published tokenizer does not cut a caller's input.
+
+ID agreement between the Rust encoder and the export is 71.8% on wiki
+held-out and 73.0% on IndicCorp held-out. Every learned merge survives the
+export. The gap is in the encoder, and `Known limits` below has the detail.
 
 ## Library Usage (Rust)
 
@@ -361,7 +399,7 @@ scales cleanly. Compression on held-out wiki lines by merge budget:
 > achieves. The trainer's merge heap used to discard stale entries rather than
 > re-push them, which made training *faster* by skipping work — the 1.4 s above
 > is that bug's fingerprint, not a record. Fixing it was worth 25% of the token
-> count; see `IMPROVEMENT_ROADMAP.md` §5.
+> count.
 
 Even at 30K merges the tail pair frequency is 11, so no singleton junk appears
 and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`). A 5,000-line
@@ -492,13 +530,16 @@ domain, and after the merge-table re-indexing the throughput cost of going from
 30K to 120K is about 11% rather than the 2.4x an earlier revision quoted. Use
 the 30K when artifact size matters more than sequence length.
 
-Each is published twice: the bare `.json` in this repo's
-`{vocab, merges, metadata}` format, and a `_hf/tokenizer.json` that Python's
-`tokenizers` loads directly. **Use the `_hf` one from Python** —
-`Tokenizer.from_file` cannot read the bare format and raises a JSON parse error.
+Each is published three ways: the bare `.json` in this repo's
+`{vocab, merges, metadata}` format, a `_hf/` directory holding the Python-side
+conversion, and, for the 120K model, a copy at the repository root. The root
+copy is what `AutoTokenizer.from_pretrained` loads, so the one-liner needs no
+subfolder argument. The bare `.json` files only load through the Rust encoder;
+`Tokenizer.from_file` raises a JSON parse error on them.
 
 The model card is generated at publish time by `scripts/publish_hf.py`, which
-refuses to upload unless decode fidelity is 100% on both held-out splits.
+refuses to upload unless decode fidelity is 100% on both held-out splits and
+the export loads through `AutoTokenizer` with its special tokens resolved.
 
 ### Measured against general-purpose tokenizers
 
@@ -559,9 +600,14 @@ it is not evidence they are why a model would perform better.
 | File | Purpose |
 |------|---------|
 | `tokenizer.json` | `PreTrainedTokenizerFast` — `Split` pretokenizer + BPE model |
-| `tokenizer_config.json` | `model_max_length`, BOS/EOS/UNK names |
+| `tokenizer_config.json` | `model_max_length`, BOS/EOS/PAD/UNK names |
+| `special_tokens_map.json` | The same four special tokens, for `transformers` |
 | `vocab.json` | Slow-tokenizer vocab (`token -> id`) |
 | `merges.txt` | Slow-tokenizer merges, rank order, `#version: 0.2` header |
+
+`model_max_length` is unlimited unless you pass a third argument to
+`export_hf`. `transformers` reads it as the cap it applies when you pass
+`truncation=True`, and a base tokenizer should not cut a caller's input.
 
 Two of our design choices have no HF equivalent, and the exporter translates
 both instead of leaving them to fail silently in Python:
@@ -579,21 +625,23 @@ both instead of leaving them to fail silently in Python:
   corpus contains.
 
   This bridges the gap only partially. Measured against `data/wiki/test.txt`,
-  `verify_hf_export.py` reports **100% decode fidelity** but **~72-79% ID
-  agreement** — the same merge list applied to different starting symbols
-  produces different segmentations, because HF starts from characters where we
-  start from base clusters. In token *count* the gap is under 1%. Registering
-  base clusters as HF `added_tokens` instead is worse, not better: added tokens
-  are extracted before the BPE model runs, so the model never fires. See
-  `IMPROVEMENT_ROADMAP.md` Known Limit 6.
+  `verify_hf_export.py` reports 100% decode fidelity and 71.8% ID agreement.
+  The two engines start from different symbols and merge differently. In token
+  *count* the gap is about 1.7%. Registering base clusters as HF `added_tokens`
+  is worse: added tokens are extracted before the BPE model runs, so the model
+  never fires. The `Known limits` section below has the detail.
 
 ### Known limits
 
-**ID agreement is ~72-79%, and that is structural.** All learned merges survive
-the export — none are dropped. The gap is the starting symbol set: this encoder
-segments into base clusters then applies merges by rank, while HF's `BPE` model
-always starts from single characters. The same merge list over different starting
-symbols segments differently. In token *count* the gap is under 1%.
+**ID agreement with the Rust encoder is 71.8% on wiki and 73.0% on IndicCorp,
+and the gap is in the encoder.** Every learned merge survives the export; none
+are dropped. The two engines segment differently because they start from
+different symbols and merge differently. HF's `BPE` model starts from single
+characters and merges every occurrence of the best-ranked pair per pass.
+`FastBPEEncoder` starts from the 1,135 base clusters and merges one occurrence
+per pass. Reimplementing HF's algorithm over the exported merge list
+reproduces its IDs exactly, so the gap closes when the encoder takes those
+semantics. In token *count* the gap is about 1.7%.
 
 Two defects that used to be listed here are now fixed, and both were worse than
 described:
@@ -627,9 +675,11 @@ is worse than no tokenizer.
 
 The trained tokenizer is published at
 [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki)
-as `tamil_tokenizer_wiki.json`, along with the corpora used to train it. That
-file is in this repo's `{vocab, merges, metadata}` format; run `export_hf` on it
-to get a `tokenizer.json` Python can load.
+along with the corpora used to train it. The repository root holds the 120K
+model in Hugging Face format, so `AutoTokenizer.from_pretrained` loads it
+without a subfolder argument. The bare `tamil_tokenizer_wiki.json` file is this
+repo's `{vocab, merges, metadata}` format and loads through the Rust encoder;
+run `export_hf` on it to get a `tokenizer.json` Python can load.
 
 ### Usage with the Rust CLI
 

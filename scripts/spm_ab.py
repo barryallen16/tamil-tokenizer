@@ -8,7 +8,7 @@ SentencePiece is the reference Unigram implementation. Using it instead of a
 hand-rolled trainer matters: the algorithm is suffix-array seeding, forward-
 backward marginals in the E-step, a digamma M-step and loss-based pruning, and
 getting any of those wrong moves compression by tens of percent in either
-direction. See `IMPROVEMENT_ROADMAP.md` for what that looked like in practice.
+direction. A hand-rolled trainer gets this wrong in both directions.
 
 Usage:
   python scripts/spm_ab.py                       # 32K, wiki train, both splits

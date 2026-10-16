@@ -12,9 +12,10 @@ Two invariants are enforced, not assumed:
 
   1. Decode fidelity must be 100% on both held-out splits, or nothing uploads.
      A tokenizer that corrupts text is worse than no tokenizer.
-  2. The card quotes ID agreement as ~79%, not ~99%, and says why. HF's BPE
-     cannot reproduce our base-cluster segmentation; see Known Limit 6 in
-     IMPROVEMENT_ROADMAP.md.
+  2. The export has to load through AutoTokenizer with its special tokens
+     resolved, or nothing uploads.
+  3. The card quotes ID agreement as measured, and says why it is not 100%.
+     The gap is in our encoder, not in the export.
 
 Usage:
   export HF_TOKEN=hf_xxx
@@ -54,8 +55,9 @@ SPLITS = [
 # trust it.
 #
 # Both are v4: trained with a dummy prefix on every training line, which closes
-# the line-initial word split the roadmap measured at +1.0-1.3%. A v3 model and a
-# v4 model differ only in that preprocessing, so the published set is coherent.
+# the line-initial word split, worth +1.0-1.3% depending on merge budget. A v3
+# model and a v4 model differ only in that preprocessing, so the published set
+# is coherent.
 PREFIX_NOTE = ("train on a copy of the corpus with one space prepended to every "
                "line (SentencePiece's add_dummy_prefix)")
 
@@ -78,8 +80,8 @@ MODELS = [
         'training': 'python scripts/prefix_ab.py data/mixed/train.txt '
                     'data/wiki/test.txt 120000  # then take dummy.json',
         'corpus': 'data/mixed/train.txt',
-        'blurb': 'The roadmap-recommended default: 120K merges on wiki + '
-                 'IndicCorpV2. Matches the best specialist on each domain.',
+        'blurb': 'The default: 120K merges on wiki + IndicCorpV2. Matches the '
+                 'best specialist on each domain.',
     },
 ]
 
@@ -258,8 +260,7 @@ over this merge list reproduces its IDs exactly, so the two engines converge
 once the encoder takes those semantics.
 
 Token count differs by about 1.7% against the Rust encoder. If you need exact
-ID parity, use the Rust encoder. Full write-up in Known Limit 6 of
-`IMPROVEMENT_ROADMAP.md`.
+ID parity, use the Rust encoder.
 """
 
 

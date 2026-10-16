@@ -2,10 +2,9 @@
 """MorphScore for Tamil: how often our token boundaries land on morpheme
 boundaries, against general-purpose tokenizers.
 
-This is the axis `IMPROVEMENT_ROADMAP.md` 7.2 identifies as unmeasured, and the
-one place the project's premise can be attacked from outside. Bytes/token says
-our tokenizer is compact; it says nothing about whether the boundaries are
-linguistically real.
+Bytes/token says our tokenizer is compact; it says nothing about whether the
+boundaries are linguistically real. This measures the second thing, and it is
+the one place the project's premise can be attacked from outside.
 
 Read the caveat at the bottom before treating a number here as a target. Arnett
 & Bergen (COLING 2025) and Arnett, Hudspeth & O'Connor (ICML 2025) both find

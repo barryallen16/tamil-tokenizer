@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """How much of a trained vocabulary actually earns its keep.
 
-The roadmap recommends 120K merges but never measured whether the tail is used.
 A tokenizer whose tail is inert could be smaller at equal compression and
-higher throughput, which would change the recommended default.
+higher throughput, which would change the recommended default. This measures
+how much of a trained vocabulary earns its keep.
 
 Usage:
   python scripts/vocab_utilization.py <model.json> [corpus ...]

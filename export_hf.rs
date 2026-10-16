@@ -18,22 +18,22 @@ use tamil_tokenizer::{TamilPretokenizer, TamilTokenizer, TokenizerResult as Resu
 ///    merges that build each such token from its characters, and appends any
 ///    character the vocab lacks so HF can represent the input at all.
 ///
-/// Known limit: ID parity with our encoder is **79.2%**, not the 99.4-99.7%
-/// this file's header used to claim. The cause is structural, not a data bug —
-/// all 120,000 learned merges survive the export (verified), so nothing is lost
-/// here. It is that HF's `BPE` model always starts from individual characters,
-/// while `FastBPEEncoder` starts from the 1,135 base clusters and only then
-/// applies merges by rank. The same merge list applied to different starting
-/// symbol sequences produces different segmentations: on ` வள்ளச்சி` our
-/// encoder yields one token and HF yields ` வள்ள` + `ச்சি`. The promotion
-/// merges below only partly bridge this. Registering the base clusters as
-/// `added_tokens` instead is worse, not better: HF extracts added tokens before
-/// the BPE model runs, so the model never fires and output collapses to
-/// characters (measured: 0% agreement). HF `BPE` has no seed-symbol concept, so
-/// this export is a lossy approximation of our encoder, not an equivalent.
+/// ID parity with our encoder is 79.2%. The cause sits in `FastBPEEncoder`.
+/// All 120,000 learned merges survive the export (verified), so nothing is
+/// lost here. The encoder seeds a chunk with a greedy longest match over the
+/// 1,135 base clusters and merges one occurrence per pass. HF's `BPE` model
+/// seeds with single characters and merges every occurrence of the best-ranked
+/// pair per pass. Reimplementing HF's algorithm over this file's own merge
+/// list reproduces its IDs exactly, so the gap closes when the encoder takes
+/// those semantics.
 ///
-/// Round-trip fidelity is 100% and is the property to hold this file to; see
-/// `scripts/verify_hf_export.py`, which reports both numbers separately.
+/// Registering the base clusters as `added_tokens` does not help. HF extracts
+/// added tokens before the BPE model runs, so the model never fires and output
+/// collapses to characters (measured: 0% agreement).
+///
+/// Round-trip fidelity is 100% and is the property to hold this file to. See
+/// `scripts/verify_hf_export.py`, which reports fidelity and ID agreement
+/// separately.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -265,18 +265,43 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
 
     // model_max_length goes in tokenizer_config.json. HF's tokenizer.json
     // schema rejects the field, so writing it there makes the file unloadable.
+    //
+    // transformers reads model_max_length as the truncation cap, so
+    // `tok(text, truncation=True)` cuts the input at it. The default is the
+    // largest u64, which transformers treats as unlimited, since a base
+    // tokenizer has no length to impose. Pass an explicit value to set a cap.
+    const UNLIMITED: u64 = u64::MAX;
     let mut config = Map::new();
     config.insert("tokenizer_class".into(), json!("PreTrainedTokenizerFast"));
     config.insert(
         "model_max_length".into(),
-        json!(model_max_length.unwrap_or(512)),
+        json!(model_max_length.map(|v| v as u64).unwrap_or(UNLIMITED)),
     );
     config.insert("unk_token".into(), json!("<|unk|>"));
     config.insert("bos_token".into(), json!("<|startoftext|>"));
-    config.insert("eos_token".into(), json!(""));
+    // An empty string here resolves to no token, so `tok.eos_token` comes
+    // back None even though <|endoftext|> is in the vocab.
+    config.insert("eos_token".into(), json!("<|endoftext|>"));
+    config.insert("pad_token".into(), json!("<|pad|>"));
+    // The decoder is ByteFallback, so there is no GPT-2 whitespace cleanup to
+    // undo. Leaving this on lets transformers rewrite the decoded string.
+    config.insert("clean_up_tokenization_spaces".into(), json!(false));
     write_file(
         &format!("{out_dir}/tokenizer_config.json"),
         &serde_json::to_string_pretty(&Value::Object(config))?,
+    )?;
+
+    // transformers reads bos/eos/pad/unk from special_tokens_map.json when it
+    // exists and falls back to tokenizer_config.json otherwise. Writing both
+    // keeps the two in sync.
+    write_file(
+        &format!("{out_dir}/special_tokens_map.json"),
+        &serde_json::to_string_pretty(&json!({
+            "bos_token": "<|startoftext|>",
+            "eos_token": "<|endoftext|>",
+            "unk_token": "<|unk|>",
+            "pad_token": "<|pad|>",
+        }))?,
     )?;
 
     println!(
@@ -291,6 +316,7 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
     }
     println!("  tokenizer.json        (HF tokenizers, Split + BPE)");
     println!("  tokenizer_config.json (model_max_length, special tokens)");
+    println!("  special_tokens_map.json (bos/eos/pad/unk)");
     println!("  vocab.json            (slow-tokenizer vocab)");
     println!("  merges.txt            (slow-tokenizer merges, rank order)");
     Ok(())

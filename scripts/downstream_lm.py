@@ -58,9 +58,13 @@ def load_tokenizer(name):
     return AutoTokenizer.from_pretrained(repo, subfolder=subfolder)
 
 
-def tokenize_lines(tok, lines, label):
-    """Tokenize once and cache the ids, since this is the slow part."""
-    cache = os.path.join(RESULTS, f'{label}.npy')
+def tokenize_lines(tok, lines, label, nbytes):
+    """Tokenize once and cache the ids, since this is the slow part.
+
+    The cache name carries the size of the input, so a short smoke run does not
+    hand its tokenized corpus to a later full run.
+    """
+    cache = os.path.join(RESULTS, f'{label}_{nbytes}.npy')
     if os.path.exists(cache):
         return np.load(cache)
     os.makedirs(RESULTS, exist_ok=True)
@@ -277,11 +281,12 @@ def main():
     print(f'  train {len(train_lines)} lines, eval ' +
           ', '.join(f'{len(l)} lines' for _, l, _ in evals))
 
-    train_ids = tokenize_lines(tok, train_lines, f'train_{args.tokenizer}')
+    train_bytes = sum(len(l.encode('utf-8')) + 1 for l in train_lines)
+    train_ids = tokenize_lines(tok, train_lines, f'train_{args.tokenizer}', train_bytes)
     eval_ids = []
     for label, lines, path in evals:
-        ids = tokenize_lines(tok, lines, f'eval_{label}_{args.tokenizer}')
         nbytes = sum(len(l.encode('utf-8')) + 1 for l in lines)
+        ids = tokenize_lines(tok, lines, f'eval_{label}_{args.tokenizer}', nbytes)
         eval_ids.append((label, ids, nbytes))
         print(f'  eval {label}: {len(ids)} tokens over {nbytes} bytes')
 

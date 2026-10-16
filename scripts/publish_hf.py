@@ -277,6 +277,8 @@ def main():
                     help='re-upload only README.md, not the model files')
     ap.add_argument('--only', choices=[m['key'] for m in MODELS], help='publish one model')
     ap.add_argument('--corpora', action='store_true', help='also upload the training corpora')
+    ap.add_argument('--commit-message', default='publish hf artifacts',
+                    help='commit message for the Hub commit')
     args = ap.parse_args()
 
     # The token is only needed to upload. A dry run should not need one.
@@ -384,27 +386,30 @@ def main():
         print('   card-only: skipping model files')
     else:
         api.create_repo(args.repo, repo_type='model', exist_ok=True)
-        for dest, src in sorted(uploads.items()):
-            print(f'   uploading {dest} ...', end='', flush=True)
-            api.upload_file(
-                path_or_fileobj=src,
-                path_in_repo=dest,
-                repo_id=args.repo,
-                repo_type='model',
-            )
-            print(' done')
 
+    # One commit for the whole publish. A file-by-file upload leaves the Hub
+    # history as a dozen commits named "Upload file", which hides when the
+    # artifact actually changed.
+    from huggingface_hub import CommitOperationAdd
+
+    operations = []
+    for dest, src in sorted(uploads.items()):
+        operations.append(CommitOperationAdd(path_in_repo=dest, path_or_fileobj=src))
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False,
                                      encoding='utf-8') as f:
         f.write(card)
         card_path = f.name
-    # huggingface_hub 1.x takes keyword-only args after `self`; a positional
-    # call here raises TypeError only after the model files are already up.
-    api.upload_file(
-        path_or_fileobj=card_path,
-        path_in_repo='README.md',
+    operations.append(CommitOperationAdd(path_in_repo='README.md',
+                                         path_or_fileobj=card_path))
+
+    print(f'   committing {len(operations)} file(s):')
+    for op in operations:
+        print(f'     {op.path_in_repo}')
+    api.create_commit(
         repo_id=args.repo,
         repo_type='model',
+        operations=operations,
+        commit_message=args.commit_message,
     )
     os.unlink(card_path)
 

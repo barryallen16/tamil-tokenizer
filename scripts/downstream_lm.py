@@ -152,11 +152,22 @@ def build_model(vocab_size, d_model, n_layers, n_heads, context):
     return MiniLM()
 
 
-def train(model, tokens, budget, context, batch, lr, seed, log_every=50):
+def train(model, tokens, budget, context, batch, lr, seed, micro_batch=None, log_every=50):
+    """Train on a shuffled stream of tokens.
+
+    The logits are batch x context x vocab, which is gigabytes for a large
+    vocabulary, so the batch is split into micro-batches and the gradients
+    accumulated. The effective batch size stays the same for every tokenizer,
+    which is what has to match for the comparison to mean anything.
+    """
     import torch
 
     torch.manual_seed(seed)
+    cuda = torch.cuda.is_available()
+    micro = micro_batch or batch
+    accum = max(1, batch // micro)
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1, betas=(0.9, 0.95))
+    scaler = torch.amp.GradScaler('cuda', enabled=cuda)
     steps = max(1, budget // (batch * (context - 1)))
     warmup = max(1, steps // 20)
 
@@ -177,22 +188,26 @@ def train(model, tokens, budget, context, batch, lr, seed, log_every=50):
     for step in range(steps):
         for g in optimiser.param_groups:
             g['lr'] = lr_at(step)
-        batch_idx = []
-        for _ in range(batch):
-            if cursor + context > len(stream):
-                stream = tokens[np.random.permutation(len(tokens))]
-                cursor = 0
-            batch_idx.append(stream[cursor:cursor + context])
-            cursor += context
-        x = torch.from_numpy(np.stack(batch_idx).astype(np.int64))
-        logits = model(x[:, :-1])
-        loss = torch.nn.functional.cross_entropy(
-            logits.reshape(-1, logits.size(-1)), x[:, 1:].reshape(-1))
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimiser.step()
         optimiser.zero_grad(set_to_none=True)
-        running += loss.item()
+        for _ in range(accum):
+            batch_idx = []
+            for _ in range(micro):
+                if cursor + context > len(stream):
+                    stream = tokens[np.random.permutation(len(tokens))]
+                    cursor = 0
+                batch_idx.append(stream[cursor:cursor + context])
+                cursor += context
+            x = torch.from_numpy(np.stack(batch_idx).astype(np.int64))
+            with torch.autocast('cuda', dtype=torch.float16, enabled=cuda):
+                logits = model(x[:, :-1])
+                loss = torch.nn.functional.cross_entropy(
+                    logits.reshape(-1, logits.size(-1)), x[:, 1:].reshape(-1))
+            scaler.scale(loss / accum).backward()
+            running += loss.item() / accum
+        scaler.unscale_(optimiser)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        scaler.step(optimiser)
+        scaler.update()
         if (step + 1) % log_every == 0:
             done = (step + 1) * batch * (context - 1)
             print(f'  step {step + 1}/{steps} loss {running / log_every:.4f} '
@@ -208,6 +223,7 @@ def evaluate(model, tokens, context, batch, limit):
     model.eval()
     nll = 0.0
     count = 0
+    cuda = torch.cuda.is_available()
     with torch.no_grad():
         for i in range(0, limit - context, batch * context):
             chunk = tokens[i:i + batch * context]
@@ -215,10 +231,11 @@ def evaluate(model, tokens, context, batch, limit):
             if len(rows) < context:
                 break
             x = torch.from_numpy(rows.astype(np.int64)).view(-1, context)
-            logits = model(x[:, :-1])
-            loss = torch.nn.functional.cross_entropy(
-                logits.reshape(-1, logits.size(-1)), x[:, 1:].reshape(-1),
-                reduction='sum')
+            with torch.autocast('cuda', dtype=torch.float16, enabled=cuda):
+                logits = model(x[:, :-1])
+                loss = torch.nn.functional.cross_entropy(
+                    logits.reshape(-1, logits.size(-1)), x[:, 1:].reshape(-1),
+                    reduction='sum')
             nll += loss.item()
             count += x[:, 1:].numel()
     return nll, count
@@ -253,7 +270,10 @@ def main():
     ap.add_argument('--d-model', type=int, default=256)
     ap.add_argument('--layers', type=int, default=4)
     ap.add_argument('--heads', type=int, default=4)
-    ap.add_argument('--batch', type=int, default=8)
+    ap.add_argument('--batch', type=int, default=16, help='effective batch size')
+    ap.add_argument('--micro-batch', type=int, default=2,
+                    help='batch per forward pass; gradients are accumulated')
+    ap.add_argument('--eval-batch', type=int, default=2)
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--seed', type=int, default=1234)
     ap.add_argument('--report', action='store_true')
@@ -312,11 +332,12 @@ def main():
     else:
         budget_tokens = min(args.tokens, len(train_ids))
 
-    elapsed = train(model, train_ids, budget_tokens, args.context, args.batch, args.lr, args.seed)
+    elapsed = train(model, train_ids, budget_tokens, args.context, args.batch, args.lr,
+                    args.seed, micro_batch=args.micro_batch)
 
     scores = {}
     for label, ids, nbytes in eval_ids:
-        nll, count = evaluate(model, ids, args.context, args.batch, len(ids))
+        nll, count = evaluate(model, ids, args.context, args.eval_batch, len(ids))
         scores[label] = {
             'bits_per_byte': nll / math.log(2) / nbytes,
             'nll_nats_per_token': nll / max(1, count),

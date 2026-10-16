@@ -6,9 +6,10 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 
 - **Tamil-aware base vocabulary** — 1,135 tokens with no training: 256 byte tokens, 12 independent vowels, 23 standalone consonants, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 4 special characters (`ஃ ஂ ௐ ௗ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 528 further conjunct stems, 10 Tamil digits and 11 extra characters. The conjunct stems are what actually moved compression — Tamil joins consonants constantly (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`) and each one cost 3-4 tokens before
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
-- **Fast encoding** — Aho-Corasick automaton for O(n) multi-pattern matching during tokenization
+- **Fast encoding** — a packed merge table with a per-pair rule cache, so a pair is looked up once per chunk rather than once per merge
 - **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores
 - **Hugging Face export** — `export_hf` writes `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json` and `merges.txt`, checked against Python `tokenizers` and `transformers`
+- **One model, two engines** — the Rust encoder and the Hugging Face export read the same vocabulary and the same merge list, so they emit the same token IDs for the same text
 - **Special token support** — BOS/EOS, language tags, question/answer markers, and 100 reserved slots (o200k-style layout)
 - **GPT-2 compatible byte mappings** — The exact byte-to-unicode table from GPT-2, so exports match Hugging Face's `ByteLevel`
 
@@ -18,6 +19,7 @@ A high-performance **Byte Pair Encoding (BPE)** tokenizer library for **Tamil te
 .
 ├── lib.rs                  # Library root — re-exports public types
 ├── vocab.rs                # TamilTokenizer — base vocabulary + byte mappings
+├── model.rs                 # The canonical model both engines read
 ├── pretokenizer.rs         # TamilPretokenizer — regex-based text splitting
 ├── trainer.rs              # OptimizedBPETrainer — parallel BPE training
 ├── encoder.rs              # FastBPEEncoder — encode/decode with Aho-Corasick
@@ -310,13 +312,21 @@ Text Input
     │
     ▼
 ┌──────────────────┐
-│  Pretokenizer    │  Regex-based splitting (Tamil-aware Unicode patterns)
+│  Pretokenizer    │  Regex-based splitting
+│                  │  (Tamil-aware Unicode patterns)
 └──────────────────┘
     │
     ▼
 ┌──────────────────┐
-│  Aho-Corasick    │  O(n) multi-pattern matching against vocabulary
-│  Automaton       │
+│  Canonical model │  One vocabulary and one
+│                  │  merge list, shared with the
+│                  │  Hugging Face export
+└──────────────────┘
+    │
+    ▼
+┌──────────────────┐
+│  BPE merges      │  Lowest-ranked pair first,
+│                  │  every occurrence in one pass
 └──────────────────┘
     │
     ▼
@@ -333,22 +343,22 @@ All numbers below were produced by `cargo run --release --bin benchmark` against
 `output/tamil_tokenizer.json` on this repo's `data/tamil_corpus.txt`
 (117 lines, 5,161 bytes, 424 unique words). They are reproducible from a clean checkout.
 
-### Measured: local 1,015-token model
+### Measured: local 1,095-token model
 
 | Metric | Value |
 |--------|------:|
-| Vocabulary size | 1,015 (907 base + 8 named specials + 100 reserved)* |
-| Trained merges | 297 (1,159 with the frequency floor relaxed; see below) |
-| Corpus compression | 2.56 bytes/token |
+| Vocabulary size | 1,095 (987 base + 8 named specials + 100 reserved)* |
+| Trained merges | 300 (1,159 with the frequency floor relaxed; see below) |
+| Corpus compression | 2.57 bytes/token |
 | Tamil tokens/word | 3.64 |
-| Encode throughput (single thread, 16 MB clean wiki) | 26.6 MB/s (32K vocab), 23.6 MB/s (120K vocab) |
-| Encode throughput (rayon batch, 16 MB clean wiki) | 69.4 MB/s (32K vocab), 58.1 MB/s (120K vocab) |
+| Encode throughput (single thread, 16 MB clean wiki) | 18.6 MB/s (30K vocab), 17.2 MB/s (120K vocab) |
+| Encode throughput (rayon batch, 16 MB clean wiki) | 46.7 MB/s (30K vocab), 42.1 MB/s (120K vocab) |
 
-*\*The 907 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
+*\*The 987 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
 
 Throughput measured with `cargo run --release --bin bench`, best of three passes
 over 16 MB of `data/tamil_wiki_clean.txt`. Run-to-run variance is a few percent.
-Moving 30K to 120K merges costs about 11% of throughput, not the 2.4x an earlier
+Moving 30K to 120K merges costs about 8% of throughput, not the 2.4x an earlier
 revision of this file claimed: the merge table is CSR-indexed by first token
 (commit `60a4855`) rather than hashed on the pair, so it still fits in cache.
 
@@ -435,7 +445,7 @@ python scripts/prep_corpus.py data/indiccorp_ta.txt data/indiccorp
 python scripts/prep_corpus.py --split data/tamil_wiki_clean.txt data/wiki
 python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic
 
-cargo run --release --bin score -- ./output/dom_mixed_120000.json ./data/wiki/test.txt wiki
+cargo run --release --bin score -- ./output/v4_mixed_120000_prefixed.json ./data/wiki/test.txt wiki
 ```
 
 IndicCorp is one document per line, so `prep_corpus.py` splits into sentences and
@@ -447,40 +457,40 @@ own training slice.
 
 | Training corpus | Merges | wiki | IndicCorp |
 |---|---:|---:|---:|
-| wiki 25 MB | 30K | **13.468** | 13.449 |
-| IndicCorp 199 MB | 30K | 12.781 | **14.747** |
-| mixed 25 wiki + 199 ic | 30K | 13.138 | 14.729 |
-| wiki 25 MB | 60K | 14.429 | 14.517 |
-| IndicCorp 199 MB | 60K | 13.856 | 15.956 |
-| mixed 25 wiki + 199 ic | 60K | 14.236 | 15.939 |
-| wiki 25 MB | 120K | 15.149 | 15.330 |
-| IndicCorp 199 MB | 120K | 14.829 | 16.952 |
-| mixed 25 wiki + 199 ic | 120K | 15.212 | **16.944** |
+| wiki 25 MB | 30K | 13.115 | 13.053 |
+| IndicCorp 199 MB | 30K | 12.531 | 14.244 |
+| mixed 25 wiki + 199 ic | 30K | 12.857 | 14.222 |
+| wiki 25 MB | 60K | 14.080 | 14.097 |
+| IndicCorp 199 MB | 60K | 13.625 | 15.443 |
+| mixed 25 wiki + 199 ic | 60K | 13.933 | 15.390 |
+| wiki 25 MB | 120K | 14.784 | 14.900 |
+| IndicCorp 199 MB | 120K | 14.664 | 16.431 |
+| mixed 25 wiki + 199 ic | 120K | 14.877 | 16.386 |
 
 Three things this shows:
 
 - **Domain skew is real but asymmetric.** Wiki is the better general-purpose Tamil
   corpus: homogeneous, so its frequent n-grams are core orthography that
-  transfers to news. At 120K the wiki-only model loses 9.5% against the mix on
-  IndicCorp, while the IndicCorp-only model loses 2.5% on wiki.
+  transfers to news. At 120K the wiki-only model loses 9.1% against the mix on
+  IndicCorp, while the IndicCorp-only model loses 1.4% on wiki.
 - **Volume is irrelevant.** Retraining wiki on the same 25 MB repeated 8 times
-  produces a byte-identical model (13.468 / 13.449). The trainer keys on unique
+  produces a byte-identical model (13.115 / 13.053). The trainer keys on unique
   words, so upsampling scales frequencies uniformly. Only *diversity* costs.
 - **Mixing only pays at a large merge budget.** At 30K the mix loses to
-  wiki-only on wiki (13.138 vs 13.468). At 120K it *ties* the best specialist on
-  each domain — 15.212 vs 15.149 on wiki, 16.944 vs 16.952 on IndicCorp, both
-  within 0.4%. A tie, not a win; the earlier revision of this table showed the
-  mix ahead on both and overstated the margin.
+  wiki-only on wiki (12.857 vs 13.115). At 120K it ties the best specialist on
+  each domain: ahead by 0.6% on wiki (14.877 vs 14.784) and behind by 0.3% on
+  IndicCorp (16.386 vs 16.431), both within 0.6%. A tie, not a win; the earlier
+  revision of this table showed the mix ahead on both and overstated the margin.
 
 ### Cost of a large vocab
 
 | Model | Merges | Vocab | wiki MB/s | IndicCorp MB/s |
 |---|---:|---:|---:|---:|
-| wiki | 30K | 31,793 | 26.6 | 28.0 |
-| mixed | 30K | 32,462 | 26.6 | 25.5 |
-| mixed | 120K | 122,462 | 23.6 | 24.1 |
+| wiki | 30K | 31,793 | 15.8 | 17.4 |
+| mixed | 30K | 32,462 | 16.7 | 17.1 |
+| mixed | 120K | 122,462 | 15.4 | 15.9 |
 
-30K → 120K buys 13-26% compression for about **11% throughput**. An earlier
+30K → 120K buys 13-26% compression for about **8% throughput**. An earlier
 revision of this section measured the cost at 2.4x and recommended staying at
 30K. That measurement was taken before the merge table was re-indexed; the cost
 is no longer what it was, and the recommendation reversed with it.
@@ -495,24 +505,28 @@ does mean 120K's advantage is concentrated in the first 60-90K merges.
 
 The trainer learns merges over raw text, so Tamil clusters and merged tokens are
 stored as raw Tamil strings. `FastBPEEncoder` encodes each pretokenized chunk in
-three steps: longest-match over base tokens only (merge results excluded), then
-standard BPE -- repeatedly merging the adjacent pair with the lowest merge rank
-until no ranked pair remains -- then one token ID per symbol. Anything without an
-ID falls back to one byte-level token per UTF-8 byte, which keeps encoding
-lossless for any input.
+three steps. First it seeds the chunk with one symbol per character, because
+Hugging Face's `BPE` model has no seed symbols and starts from characters. Then
+it applies the merges: the lowest-ranked adjacent pair first, and every
+occurrence of that pair in one pass. Then one token ID per symbol, where a
+character the vocab does not hold falls back to one token per UTF-8 byte, which
+keeps encoding lossless for any input.
 
-Byte tokens use GPT-2's byte-to-unicode table exactly. That matters more than it
-looks: Hugging Face hardcodes the same table in `ByteLevel`, so any drift shows
-up only after export, as silently wrong IDs in Python. A stand-in character is
-therefore any byte token outside printable ASCII — GPT-2 keeps bytes 161-255 as
-ordinary Latin-1, so `Ã` is both the byte token for `0xC3` and a real character.
-Tokens containing a stand-in are kept out of the matcher, so such text is never
-mistaken for raw bytes; it takes the byte fallback instead.
+The base clusters come back through the promotion merges. There are 819 of them,
+they rank ahead of the learned merges, and they rebuild each cluster from its
+characters. `model.rs` builds that list, and both the encoder and the exporter
+read it, so the two engines segment a chunk the same way.
+
+Byte tokens are spelled `<0xNN>`, the way Hugging Face spells them, and a token
+that is not a byte token is decoded as literal text. The vocab mixes raw-text
+tokens (Tamil clusters and merges, trained on raw text) with byte tokens, and a
+token like `café` is the word and not three bytes.
 
 Special tokens keep the IDs stored in the file: a trained vocab already contains
 them, and the encoder reuses those IDs instead of remapping them. The exact
 ID range where they start depends on the corpus, because the trainer mints IDs for
 clusters it discovers while reading.
+
 
 ### The published models
 
@@ -522,8 +536,8 @@ worth 0.5-1.3% depending on merge budget:
 
 | file | merges | vocab | wiki B/tok | IndicCorp B/tok |
 |---|---:|---:|---:|---:|
-| `tamil_tokenizer_wiki.json` | 30,000 | 31,793 | 13.294 | 13.255 |
-| `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,462 | 15.128 | 16.790 |
+| `tamil_tokenizer_wiki.json` | 30,000 | 31,793 | 13.115 | 13.053 |
+| `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,462 | 14.877 | 16.386 |
 
 **The 120K mixed model is the default.** It ties the best specialist on each
 domain, and after the merge-table re-indexing the throughput cost of going from
@@ -624,24 +638,26 @@ both instead of leaving them to fail silently in Python:
   the 4 characters (`ோ`, `ூ`, `ொ`, `ௌ`) that the base vocab lacks but the
   corpus contains.
 
-  This bridges the gap only partially. Measured against `data/wiki/test.txt`,
-  `verify_hf_export.py` reports 100% decode fidelity and 71.8% ID agreement.
-  The two engines start from different symbols and merge differently. In token
-  *count* the gap is about 1.7%. Registering base clusters as HF `added_tokens`
-  is worse: added tokens are extracted before the BPE model runs, so the model
-  never fires. The `Known limits` section below has the detail.
+  Measured against `data/wiki/test.txt`, `verify_hf_export.py` reports 100%
+  decode fidelity and 100% ID agreement. The two engines read one model and
+  apply the same merges, so there is nothing left to bridge.
 
 ### Known limits
 
-**ID agreement with the Rust encoder is 71.8% on wiki and 73.0% on IndicCorp,
-and the gap is in the encoder.** Every learned merge survives the export; none
-are dropped. The two engines segment differently because they start from
-different symbols and merge differently. HF's `BPE` model starts from single
-characters and merges every occurrence of the best-ranked pair per pass.
-`FastBPEEncoder` starts from the 1,135 base clusters and merges one occurrence
-per pass. Reimplementing HF's algorithm over the exported merge list
-reproduces its IDs exactly, so the gap closes when the encoder takes those
-semantics. In token *count* the gap is about 1.7%.
+**ID agreement with the Rust encoder is 100% on both held-out splits.** The two
+engines read the same vocabulary and the same merge list, and they apply the same
+merges: the lowest-ranked adjacent pair first, and every occurrence of that pair
+in one pass.
+
+That took a change to how the encoder segments. It used to seed a chunk with a
+greedy longest match over the base clusters, which Hugging Face's `BPE` model
+cannot express, since that model has no seed symbols and starts from characters.
+The exporter bridges the difference with 819 promotion merges that rebuild the
+base clusters from characters, and the encoder now starts from characters too.
+The cost is about 1.7% more tokens on Tamil, because the promotion rules and a
+greedy longest match do not always draw the cluster boundaries in the same place.
+The published artifact already behaved this way; the Rust encoder now agrees
+with it.
 
 Two defects that used to be listed here are now fixed, and both were worse than
 described:
@@ -669,7 +685,6 @@ is worse than no tokenizer.
 | `serde` / `serde_json` | Vocab serialization |
 | `rustc_hash` | Fast hash maps (FxHashMap) |
 | `ahash` | Hash maps for trainer internals |
-| `aho-corasick` | Multi-pattern matching encoder |
 
 ## Hugging Face Integration
 

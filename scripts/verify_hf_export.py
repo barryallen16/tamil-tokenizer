@@ -9,8 +9,9 @@ Build `encode_lines` first (cargo build --release --bin encode_lines) and
 catch different failures: byte-table drift breaks every line, a pretokenizer
 mismatch breaks some, and a decoder mismatch breaks round-trip only.
 
-Expected on a healthy export: decode ok 100%, ids match ~79%. ID agreement is
-capped below 100% by design — see the header of `export_hf.rs`.
+Expected on a healthy export: decode ok 100%, ids match 100%. The two engines
+build the same model and apply the same merges, so any disagreement is a bug
+rather than a known limit.
 """
 import json
 import subprocess
@@ -65,10 +66,9 @@ def main():
 
     if agree < total:
         print(
-            '\nExpected: ID agreement is ~79%, not ~100%. HF BPE starts from'
-            '\ncharacters, ours starts from the 1,135 base clusters, so the same'
-            '\nmerge list yields different segmentations. Decode fidelity is the'
-            '\nnumber to hold at 100%. See the header of export_hf.rs.'
+            '\nExpected: ID agreement is 100%. Both engines read the same canonical'
+            '\nmodel and apply the same merges, so a line that differs is a bug.'
+            '\nRun scripts/verify_install.py to check the export loads at all.'
         )
 
     # Known and accepted: the Latin-1 stand-in case above. Anything else is a

@@ -45,6 +45,11 @@ DEFAULT_KEY = '120k'
 # Files the Hub repository root needs for AutoTokenizer to load it.
 ROOT_FILES = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json']
 
+# The Rust encoder and the Hugging Face export read the same model and apply
+# the same merges, so they agree on every ID. Anything below this is a bug in
+# one of them.
+ID_AGREEMENT_FLOOR = 99.0
+
 SPLITS = [
     ('wiki', 'data/wiki/test.txt'),
     ('IndicCorp', 'data/indiccorp/test.txt'),
@@ -321,7 +326,8 @@ def main():
         if not ok:
             failures.append(f'{m["name"]}: install check failed')
 
-        # Gate: decode must be perfect on every split, or this does not ship.
+        # Gate: decode must be perfect and the two engines must agree on the
+        # IDs, or this does not ship.
         decode, ids = [], []
         for split_name, corpus_rel in SPLITS:
             corpus = os.path.join(ROOT, corpus_rel)
@@ -334,6 +340,8 @@ def main():
             print(f'    {split_name:9} decode {d:.1f}%  ids {i:.1f}%')
             if d is not None and d < 100.0:
                 failures.append(f'{m["name"]} on {split_name}: decode {d}%')
+            if i is not None and i < ID_AGREEMENT_FLOOR:
+                failures.append(f'{m["name"]} on {split_name}: ids {i}%')
 
         export_stats[m['name']] = {
             'decode': min(d for d in decode if d is not None),

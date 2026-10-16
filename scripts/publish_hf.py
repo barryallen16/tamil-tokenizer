@@ -401,8 +401,9 @@ def main():
     from huggingface_hub import CommitOperationAdd
 
     operations = []
-    for dest, src in sorted(uploads.items()):
-        operations.append(CommitOperationAdd(path_in_repo=dest, path_or_fileobj=src))
+    if not args.card_only:
+        for dest, src in sorted(uploads.items()):
+            operations.append(CommitOperationAdd(path_in_repo=dest, path_or_fileobj=src))
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False,
                                      encoding='utf-8') as f:
         f.write(card)

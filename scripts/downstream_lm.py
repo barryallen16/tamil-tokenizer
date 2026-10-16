@@ -166,7 +166,10 @@ def train(model, tokens, budget, context, batch, lr, seed, log_every=50):
         p = (step - warmup) / max(1, steps - warmup)
         return lr * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * p)))
 
-    order = np.random.permutation(len(tokens))
+    # A shuffled copy of the token stream. Shuffling the stream itself, not
+    # the index range: the batch is a window of token ids, and taking a window
+    # of the permutation would feed the model the positions instead.
+    stream = tokens[np.random.permutation(len(tokens))]
     cursor = 0
     model.train()
     start = time.time()
@@ -176,10 +179,10 @@ def train(model, tokens, budget, context, batch, lr, seed, log_every=50):
             g['lr'] = lr_at(step)
         batch_idx = []
         for _ in range(batch):
-            if cursor + context > len(order):
-                order = np.random.permutation(len(tokens))
+            if cursor + context > len(stream):
+                stream = tokens[np.random.permutation(len(tokens))]
                 cursor = 0
-            batch_idx.append(order[cursor:cursor + context])
+            batch_idx.append(stream[cursor:cursor + context])
             cursor += context
         x = torch.from_numpy(np.stack(batch_idx).astype(np.int64))
         logits = model(x[:, :-1])

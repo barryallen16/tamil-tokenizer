@@ -39,7 +39,7 @@ import time
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS = os.path.join(ROOT, 'output', 'downstream')
+RESULTS = os.path.join(ROOT, 'results', 'downstream')
 
 # The three tokenizers. Ours is the published model; the other two are the
 # strongest general-purpose Tamil tokenizers available on the Hub.

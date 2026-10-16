@@ -45,6 +45,8 @@ Designed for training and using custom tokenizers on Tamil corpora, with a fast 
 ├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
 ├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
 ├── scripts/bench_field.py        # Scores this tokenizer against the field on one corpus
+├── scripts/downstream_lm.py      # Trains one small model per tokenizer, reports bits per byte
+├── scripts/colab_downstream.py    # The same, on a Colab GPU, with the corpora built there
 ├── scripts/fetch_transcripts.py   # Tamil video transcripts, cleaned and split by video
 ├── scripts/verify_install.py     # Checks the export loads through AutoTokenizer
 ├── scripts/vocab_utilization.py  # How much of a trained vocab is actually used
@@ -72,6 +74,7 @@ Each one re-derives its result rather than trusting a stored value:
 | `verify_install.py` | Whether the export loads through `AutoTokenizer` with bos, eos, pad and unk resolved |
 | `bench_field.py` | How this tokenizer compares with the field on one corpus, same code path for everyone |
 | `fetch_transcripts.py` | Brings in a third split: Tamil video captions, split by video |
+| `downstream_lm.py` | Whether better compression gives a better model: one model, three tokenizers, bits per byte |
 | `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
 
 `cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and asserts the buckets sum to the real vocab size.
@@ -497,6 +500,46 @@ That measurement was taken before the merge table was re-indexed; the cost is no
 
 Vocabulary utilisation is measured too, via `scripts/vocab_utilization.py`: at 120K mixed, 21.3% of the vocab is never used on any of the three held-out splits, and the last 30K merges carry 2.4% of emitted tokens.
 A 120K vocab partly exists to cover rare-but-correct input, so this is not an argument for shrinking — but it does mean 120K's advantage is concentrated in the first 60-90K merges.
+
+### Downstream: the same model, three tokenizers
+
+Every number above is a property of the tokenizer.
+None of them says the tokenizer produces a better model, which is the claim that matters.
+
+`scripts/downstream_lm.py` measures it: one small transformer, one corpus, one training budget, three tokenizers.
+The budget is counted in tokens, so a tokenizer that packs more text into a token covers more of the corpus for the same compute, which is the whole mechanism the compression claim rests on.
+The score is bits per byte, because loss per token cannot be compared across tokenizers: a tokenizer that puts more text in a token has fewer tokens to spread the loss over.
+
+Trained on a Colab T4, 6 layers, 384 wide, 512 context, 20M training tokens each:
+
+| tokenizer | vocab | params | tokens | text seen | wiki bits/byte | transcripts bits/byte |
+|---|---:|---:|---:|---:|---:|---:|
+| **ours** | 122,723 | 58.0M | 18.8M | **271 MB** | **0.9189** | **0.9149** |
+| `indictok-256k` | 256,000 | 109.1M | 20.0M | 226 MB | 1.0124 | 0.9879 |
+| `mBERT` | 119,547 | 56.8M | 20.0M | 124 MB | 1.2582 | 1.3258 |
+
+Ours is 10.2% better than `indictok-256k` on the wiki split and 8.0% better on the transcripts split, and 36.9% and 44.9% better than mBERT.
+
+The comparison against mBERT is the clean one: 119,547 tokens against 122,723, and 56.8M parameters against 58.0M, so the vocabulary size and the model size are matched and the only thing that differs is the segmentation.
+Ours covers twice as much text as mBERT for the same token budget and ends up 37% to 45% ahead in bits per byte.
+
+The comparison against `indictok-256k` needs its caveat: its 256,000-token vocabulary makes its embedding table 109.1M parameters against our 58.0M, so part of what it loses is vocabulary size and not tokenization.
+Ours wins it anyway, with half the parameters, which is the opposite of what the size difference would predict.
+Our own 20M-token budget was not enough to use the whole corpus, so that row saw 271 MB rather than the 308 MB available.
+
+What this does not show: one seed and one run, so there is no variance estimate, and a 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute numbers are high.
+It is a language model, not a downstream task, so no classification or question answering score comes out of it.
+
+Reproduce:
+
+```bash
+python scripts/downstream_lm.py --tokenizer ours --tokens 20000000     --train-file data/mixed/train_prefixed.txt --train-mb 0     --eval-file data/wiki/test.txt --eval-file data/transcripts/test.txt
+python scripts/downstream_lm.py --report
+```
+
+`scripts/colab_downstream.py` runs the same thing on a Colab GPU and builds the corpora there from public sources.
+The raw results are in `results/downstream/`.
+
 
 ### How encoding works
 

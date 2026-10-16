@@ -1,0 +1,40 @@
+{
+  "tokenizer": "mbert",
+  "vocab": 119547,
+  "parameters": 56750208,
+  "train_tokens": 20000000,
+  "train_bytes_seen": 124402000,
+  "scores": {
+    "wiki/test": {
+      "bits_per_byte": 1.2582,
+      "nll_nats_per_token": 5.9196,
+      "tokens_per_byte": 0.1477,
+      "eval_tokens": 464483,
+      "eval_bytes": 3145831
+    },
+    "transcripts/test": {
+      "bits_per_byte": 1.3258,
+      "nll_nats_per_token": 5.2974,
+      "tokens_per_byte": 0.1739,
+      "eval_tokens": 547033,
+      "eval_bytes": 3145828
+    }
+  },
+  "seconds": 1131.0,
+  "args": {
+    "tokenizer": "mbert",
+    "tokens": 20000000,
+    "train_mb": 0,
+    "eval_mb": 3,
+    "context": 512,
+    "d_model": 384,
+    "layers": 6,
+    "heads": 6,
+    "batch": 16,
+    "micro_batch": 2,
+    "eval_batch": 2,
+    "lr": 0.003,
+    "seed": 1234
+  },
+  "note": "The session was released before this file could be downloaded, so the numbers are the ones the run printed, rounded to four decimals. The counts are exact."
+}

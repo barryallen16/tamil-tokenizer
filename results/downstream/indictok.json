@@ -1,0 +1,46 @@
+{
+  "tokenizer": "indictok",
+  "vocab": 256000,
+  "parameters": 109148160,
+  "train_tokens": 20000000,
+  "train_bytes_seen": 226075922,
+  "scores": {
+    "wiki/test": {
+      "bits_per_byte": 1.012360626395818,
+      "nll_nats_per_token": 8.291583359176336,
+      "tokens_per_byte": 0.08489712257270018,
+      "eval_tokens": 266231,
+      "eval_bytes": 3145831
+    },
+    "transcripts/test": {
+      "bits_per_byte": 0.9878903922451123,
+      "nll_nats_per_token": 7.461048248001922,
+      "tokens_per_byte": 0.09203459311825059,
+      "eval_tokens": 288715,
+      "eval_bytes": 3145828
+    }
+  },
+  "seconds": 1720.6592309474945,
+  "args": {
+    "tokenizer": "indictok",
+    "tokens": 20000000,
+    "bytes": 0,
+    "train_file": "/content/data/mixed/train_prefixed.txt",
+    "eval_file": [
+      "/content/data/wiki/test.txt",
+      "/content/data/transcripts/test.txt"
+    ],
+    "train_mb": 0,
+    "eval_mb": 3,
+    "context": 512,
+    "d_model": 384,
+    "layers": 6,
+    "heads": 6,
+    "batch": 16,
+    "micro_batch": 2,
+    "eval_batch": 2,
+    "lr": 0.003,
+    "seed": 1234,
+    "report": false
+  }
+}

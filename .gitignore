@@ -31,6 +31,9 @@ Thumbs.db
 hf_model_card.md
 hf_export/
 
+# Tokenization caches for the downstream run: large, and re-derivable
+results/downstream/*.npy
+
 # Model-comparison write-ups; local scratch, not part of the project
 analysis/
 

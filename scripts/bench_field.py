@@ -17,14 +17,23 @@ Usage:
       vivekvar/indictok-256k \
       sarvamai/sarvam-30b
 
+  python scripts/bench_field.py --latin-only data/transcripts/test.txt
+
+`--latin-only` keeps the lines that are at least 15% Latin letters, which is
+where English words sit inside Tamil sentences.
+
 Requires `pip install tokenizers`.
 """
+import argparse
 import os
+import re
 import sys
 
 from tokenizers import Tokenizer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+LATIN = re.compile(r'[A-Za-z]')
 
 DEFAULT_CANDIDATES = [
     ('ours 120K', 'output/v4_mixed_120000_prefixed.json'),
@@ -89,37 +98,42 @@ def _export(path):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        return 1
-    corpus = sys.argv[1]
-    candidates = []
-    if len(sys.argv) > 2:
-        for spec in sys.argv[2:]:
-            label, _, path = spec.partition('=')
-            if not path:
-                label, path = os.path.basename(spec), spec
-            candidates.append((label, path))
-    else:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('corpus')
+    ap.add_argument('candidates', nargs='*')
+    ap.add_argument('--latin-only', action='store_true',
+                    help='keep only the lines that are at least 15% Latin letters')
+    args = ap.parse_args()
+
+    corpus = args.corpus
+    candidates = args.candidates
+    if not candidates:
         candidates = DEFAULT_CANDIDATES
 
     with open(corpus, encoding='utf-8') as f:
         lines = [l.rstrip('\n') for l in f if l.strip()]
+    if args.latin_only:
+        before = len(lines)
+        lines = [l for l in lines if len(LATIN.findall(l)) >= max(3, 0.15 * len(l))]
+        print(f'latin-only: {len(lines)} of {before} lines')
 
     nbytes = sum(len(l.encode('utf-8')) for l in lines)
     nwords = sum(len(l.split()) for l in lines)
     print(f'corpus={corpus} lines={len(lines)} bytes={nbytes} words={nwords}')
     print(f'{"tokenizer":22} {"tokens":>10} {"B/tok":>8} {"tok/word":>9}')
 
-    for name, path in candidates:
-        tok = load(name, path)
+    for spec in candidates:
+        label, _, path = spec.partition('=')
+        if not path:
+            label, path = os.path.basename(spec), spec
+        tok = load(label, path)
         if tok is None:
-            print(f'{name:22} {"LOAD FAILED":>10}')
+            print(f'{label:22} {"LOAD FAILED":>10}')
             continue
         count = 0
         for line in lines:
             count += len(tok.encode(line, add_special_tokens=False).ids)
-        print(f'{name:22} {count:>10} {nbytes / count:>8.3f} {count / nwords:>9.3f}')
+        print(f'{label:22} {count:>10} {nbytes / count:>8.3f} {count / nwords:>9.3f}')
     return 0
 
 

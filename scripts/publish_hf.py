@@ -81,12 +81,14 @@ MODELS = [
     {
         'key': '120k',
         'name': 'tamil_tokenizer_wiki_120k_mixed',
-        'local': 'output/v4_mixed_120000_prefixed.json',
-        'training': 'python scripts/prefix_ab.py data/mixed/train.txt '
+        'local': 'output/v5_mixed_120000_prefixed.json',
+        'training': 'python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic+transcripts\n'
+                    'python scripts/prefix_ab.py data/mixed/train.txt '
                     'data/wiki/test.txt 120000  # then take dummy.json',
         'corpus': 'data/mixed/train.txt',
-        'blurb': 'The default: 120K merges on wiki + IndicCorpV2. Matches the '
-                 'best specialist on each domain.',
+        'blurb': 'The default: 120K merges on wiki + IndicCorpV2 + Tamil video '
+                 'transcripts. The transcripts carry the English-inside-Tamil '
+                 'forms the prose corpora never had.',
     },
 ]
 

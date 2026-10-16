@@ -127,6 +127,15 @@ if __name__ == '__main__':
             'wiki': [('data/wiki/train.txt', 1)],
             'ic': [('data/indiccorp/train.txt', 1)],
             'wiki+ic': [('data/wiki/train.txt', 1), ('data/indiccorp/train.txt', 1)],
+            'wiki+ic+transcripts': [
+                ('data/wiki/train.txt', 1),
+                ('data/indiccorp/train.txt', 1),
+                ('data/transcripts/train.txt', 1),
+            ],
+            'wiki+transcripts': [
+                ('data/wiki/train.txt', 1),
+                ('data/transcripts/train.txt', 1),
+            ],
         }[which]
         sys.exit(mix(sources, out, sample))
     if sys.argv[1:2] == ['--split']:

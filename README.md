@@ -412,9 +412,9 @@ Both of those figures are pre-trainer-fix; the cleaning ratio is what the compar
 python scripts/fetch_indiccorp.py --limit-mb 400   # 419 MB slice of the 11.8 GB file
 python scripts/prep_corpus.py data/indiccorp_ta.txt data/indiccorp
 python scripts/prep_corpus.py --split data/tamil_wiki_clean.txt data/wiki
-python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic
+python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic+transcripts
 
-cargo run --release --bin score -- ./output/v4_mixed_120000_prefixed.json ./data/wiki/test.txt wiki
+cargo run --release --bin score -- ./output/v5_mixed_120000_prefixed.json ./data/wiki/test.txt wiki
 ```
 
 IndicCorp is one document per line, so `prep_corpus.py` splits into sentences and applies the same cleaning gate as the wiki corpus.
@@ -422,17 +422,18 @@ Held-out sets are the *tail* of wiki and the *head* of IndicCorp, so no model is
 
 **Compression by domain** — bytes/token, higher is better, held-out splits only:
 
-| Training corpus | Merges | wiki | IndicCorp |
-|---|---:|---:|---:|
-| wiki 25 MB | 30K | 13.115 | 13.053 |
-| IndicCorp 199 MB | 30K | 12.531 | 14.244 |
-| mixed 25 wiki + 199 ic | 30K | 12.857 | 14.222 |
-| wiki 25 MB | 60K | 14.080 | 14.097 |
-| IndicCorp 199 MB | 60K | 13.625 | 15.443 |
-| mixed 25 wiki + 199 ic | 60K | 13.933 | 15.390 |
-| wiki 25 MB | 120K | 14.784 | 14.900 |
-| IndicCorp 199 MB | 120K | 14.664 | 16.431 |
-| mixed 25 wiki + 199 ic | 120K | 14.877 | 16.386 |
+| Training corpus | Merges | wiki | IndicCorp | transcripts |
+|---|---:|---:|---:|---:|
+| wiki 25 MB | 30K | 13.115 | 13.053 | 9.049 |
+| IndicCorp 199 MB | 30K | 12.531 | 14.244 | 10.763 |
+| mixed 25 wiki + 199 ic | 30K | 12.857 | 14.222 | 10.676 |
+| wiki 25 MB | 60K | 14.080 | 14.097 | 9.748 |
+| IndicCorp 199 MB | 60K | 13.625 | 15.443 | 11.709 |
+| mixed 25 wiki + 199 ic | 60K | 13.933 | 15.390 | 11.580 |
+| wiki 25 MB | 120K | 14.784 | 14.900 | 10.210 |
+| IndicCorp 199 MB | 120K | 14.664 | 16.431 | 12.596 |
+| mixed 25 wiki + 199 ic | 120K | 14.877 | 16.386 | 12.553 |
+| **mixed + 71 transcripts** | 120K | 14.720 | 16.251 | **14.050** |
 
 Three things this shows:
 
@@ -444,6 +445,8 @@ Three things this shows:
 - **Mixing only pays at a large merge budget.** At 30K the mix loses to wiki-only on wiki (12.857 vs 13.115).
   At 120K it ties the best specialist on each domain: ahead by 0.6% on wiki (14.877 vs 14.784) and behind by 0.3% on IndicCorp (16.386 vs 16.431), both within 0.6%.
   A tie, not a win; the earlier revision of this table showed the mix ahead on both and overstated the margin.
+- **One more corpus changes the picture.** Adding the transcripts to the mix lifts the transcripts column by 11.9% (12.553 to 14.050) and costs 1.1% on wiki and 0.8% on IndicCorp.
+  That row is the published model.
 
 ### Video transcripts: the third split
 
@@ -458,25 +461,26 @@ The held-out half, scored with the same harness and the same library as every ot
 
 | tokenizer | transcripts B/tok | transcripts tok/word | wiki tok/word |
 |---|---:|---:|---:|
-| **ours 120K** | **12.553** | **1.581** | **1.593** |
+| **ours 120K, with transcripts** | **14.050** | **1.413** | 1.610 |
+| ours 120K, published before | 12.553 | 1.581 | 1.593 |
 | ours 30K | 9.049 | 2.193 | 1.807 |
 | `indictok-256k` | 10.909 | 1.819 | 2.022 |
 | `sarvam-30b` | 8.226 | 2.413 | 2.514 |
-| `BrahmicTokenizer-131K` | 6.564 | 3.024 | 3.150 |
 
-First on both, but the lead narrows: 21% over the nearest competitor on Wikipedia, 13% here.
-The base vocabulary carries most of the way and not all of it, and the corpus is full of a form the training data never had: English words with Tamil glued inside them, mid-word, such as `thatடiled` or `motorரolaலயோ`.
+Training on the transcripts lifts that split by 10.6% (1.581 to 1.413) and costs 1.1% on Wikipedia.
+That row is the published model.
 
-On the 6,890 lines of that split that are Latin-heavy, the order changes:
+On the 6,890 lines of that split that are Latin-heavy, where the English sits inside the Tamil words, the order changes:
 
 | tokenizer | tok/word |
 |---|---:|
+| **ours 120K, with transcripts** | **1.654** |
 | `indictok-256k` | 1.866 |
-| **ours 120K** | 1.903 |
+| ours 120K, published before | 1.903 |
 | `sarvam-30b` | 2.219 |
 
-This is the one place we lose, and it is the place this corpus is for.
-Nothing in 236 MB of Wikipedia and IndicCorp looks like a fused Tamil-English word.
+This used to be the one place we lost, by 2% against `indictok-256k`.
+Training on the transcripts turns it into an 11% lead, which is the reason this corpus was worth fetching.
 
 
 ### Cost of a large vocab
@@ -491,7 +495,7 @@ Nothing in 236 MB of Wikipedia and IndicCorp looks like a fused Tamil-English wo
 An earlier revision of this section measured the cost at 2.4x and recommended staying at 30K.
 That measurement was taken before the merge table was re-indexed; the cost is no longer what it was, and the recommendation reversed with it.
 
-Vocabulary utilisation is measured too, via `scripts/vocab_utilization.py`: at 120K mixed, 22.9% of the vocab is never used on either held-out split, and the last 30K merges carry 2.4% of emitted tokens.
+Vocabulary utilisation is measured too, via `scripts/vocab_utilization.py`: at 120K mixed, 21.3% of the vocab is never used on any of the three held-out splits, and the last 30K merges carry 2.4% of emitted tokens.
 A 120K vocab partly exists to cover rare-but-correct input, so this is not an argument for shrinking — but it does mean 120K's advantage is concentrated in the first 60-90K merges.
 
 ### How encoding works
@@ -518,7 +522,7 @@ The Hub repo publishes two models, both retrained as **v4** — with a dummy pre
 | file | merges | vocab | wiki B/tok | IndicCorp B/tok |
 |---|---:|---:|---:|---:|
 | `tamil_tokenizer_wiki.json` | 30,000 | 31,793 | 13.115 | 13.053 |
-| `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,462 | 14.877 | 16.386 |
+| `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,723 | 14.720 | 16.251 |
 
 **The 120K mixed model is the default.** It ties the best specialist on each domain, and after the merge-table re-indexing the throughput cost of going from 30K to 120K is about 11% rather than the 2.4x an earlier revision quoted.
 Use the 30K when artifact size matters more than sequence length.

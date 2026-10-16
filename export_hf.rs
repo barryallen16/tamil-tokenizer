@@ -1,7 +1,6 @@
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
 use std::io::Write;
-use tamil_tokenizer::{TamilPretokenizer, TamilTokenizer, TokenizerResult as Result};
+use tamil_tokenizer::{TamilPretokenizer, TokenizerResult as Result};
 
 /// Write Hugging Face artifacts for a trained tokenizer.
 ///
@@ -52,109 +51,16 @@ fn main() {
 }
 
 fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<()> {
-    let (mut vocab, merges) = tamil_tokenizer::load_tokenizer(src)?;
-    let trained_vocab = vocab.len();
+    let (trained_vocab, merges) = tamil_tokenizer::load_tokenizer(src)?;
 
-    let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
-    let byte_chars: HashSet<char> = byte_decoder.keys().copied().collect();
+    // The canonical model is the vocabulary and merge list both engines read.
+    // The Rust encoder builds the same thing from the same artifact, so the
+    // two agree on every token ID.
+    let canonical = tamil_tokenizer::canonical_model(&trained_vocab, &merges);
+    let vocab = canonical.vocab;
+    let all_merges = canonical.merges;
+    let trained_vocab = trained_vocab.len();
 
-    // A character used by any token but absent from the vocab cannot be looked
-    // up by HF, so the input cannot even be represented. Append those.
-    let mut missing: Vec<char> = vocab
-        .keys()
-        .flat_map(|t| t.chars())
-        .filter(|c| !vocab.contains_key(&c.to_string()) && !byte_chars.contains(c))
-        .collect();
-    missing.sort_unstable();
-    missing.dedup();
-    let added_prims = missing.len();
-    let mut next_id = vocab.values().copied().max().map_or(0, |m| m + 1);
-    for c in missing {
-        vocab.insert(c.to_string(), next_id);
-        next_id += 1;
-    }
-
-    // Byte fallback. Without it HF BPE silently drops any character absent from
-    // the vocab, where our encoder emits its UTF-8 bytes. HF's convention is
-    // `<0xNN>` tokens plus `byte_fallback: true`, and the decoder maps them
-    // back through the same GPT-2 byte table.
-    let mut byte_tokens = Vec::with_capacity(256);
-    for b in 0..=255u8 {
-        let name = format!("<0x{b:02X}>");
-        vocab.insert(name.clone(), next_id);
-        byte_tokens.push((name, byte_encoder[&b]));
-        next_id += 1;
-    }
-
-    // Promotion: every multi-char token must be reachable from single
-    // characters. Build each one left to right, and only emit a rule whose
-    // result is itself a vocab token.
-    let produced: HashSet<String> = merges.iter().map(|(a, b)| format!("{a}{b}")).collect();
-    let mut reachable: HashSet<String> = byte_chars
-        .iter()
-        .map(|c| c.to_string())
-        .chain(vocab.keys().filter(|t| t.chars().count() == 1).cloned())
-        .collect();
-
-    let mut candidates: Vec<&String> = vocab
-        .keys()
-        .filter(|t| t.chars().count() > 1 && !produced.contains(*t) && !reachable.contains(*t))
-        .collect();
-    // Longest result first. Promotion rank decides which merge BPE takes when
-    // several are available, and our encoder resolves overlaps by longest
-    // match. Emitting க்ஷெ (4 chars) before க்ஷ and ஷெ (3) is what makes HF
-    // rebuild க்ஷெ instead of stopping at க் + ஷெ.
-    candidates.sort_by_key(|t| (std::cmp::Reverse(t.chars().count()), (*t).clone()));
-
-    let mut promotions: Vec<(String, String)> = Vec::new();
-    for token in candidates {
-        // Recursively split into two vocab tokens, longest prefix first. A
-        // flat greedy pass would take the whole token as one part and emit
-        // nothing; and a plain prefix pass cannot build ஸ்ரீ, since ஸ்ர is not
-        // a token while ஸ் and ரீ both are.
-        fn split(
-            token: &str,
-            vocab: &rustc_hash::FxHashMap<String, u32>,
-            reachable: &HashSet<String>,
-        ) -> Option<Vec<(String, String)>> {
-            if reachable.contains(token) {
-                return Some(Vec::new());
-            }
-            let chars: Vec<char> = token.chars().collect();
-            for k in (1..chars.len()).rev() {
-                let left: String = chars[..k].iter().collect();
-                let right: String = chars[k..].iter().collect();
-                if !vocab.contains_key(&left) || !vocab.contains_key(&right) {
-                    continue;
-                }
-                let (Some(a), Some(b)) = (
-                    split(&left, vocab, reachable),
-                    split(&right, vocab, reachable),
-                ) else {
-                    continue;
-                };
-                let mut out = a;
-                out.extend(b);
-                out.push((left, right));
-                return Some(out);
-            }
-            None
-        }
-
-        let Some(rules) = split(token, &vocab, &reachable) else {
-            continue;
-        };
-        for (a, b) in rules {
-            if reachable.insert(format!("{a}{b}")) {
-                promotions.push((a, b));
-            }
-        }
-    }
-
-    // Promotions rank ahead of learned merges: a base cluster must exist before
-    // any merge that consumes it.
-    let mut all_merges = promotions.clone();
-    all_merges.extend(merges.iter().cloned());
 
     let specials: Vec<(String, u32)> = {
         let mut v: Vec<(String, u32)> = vocab
@@ -306,13 +212,16 @@ fn export(src: &str, out_dir: &str, model_max_length: Option<usize>) -> Result<(
 
     println!(
         "Exported {} vocab, {} merges ({} promotions) to {}",
-        trained_vocab,
+        trained_vocab + canonical.added_prims + 256,
         all_merges.len(),
-        promotions.len(),
+        canonical.promotions,
         out_dir
     );
-    if added_prims > 0 {
-        println!("  {added_prims} characters appended to the vocab as primitives");
+    if canonical.added_prims > 0 {
+        println!(
+            "  {} characters appended to the vocab as primitives",
+            canonical.added_prims
+        );
     }
     println!("  tokenizer.json        (HF tokenizers, Split + BPE)");
     println!("  tokenizer_config.json (model_max_length, special tokens)");

@@ -247,7 +247,6 @@ name = "tamil_tokenizer"
 version = "0.1.0"
 dependencies = [
  "ahash",
- "aho-corasick",
  "rayon",
  "regex",
  "rustc-hash",

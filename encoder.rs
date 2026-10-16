@@ -1,6 +1,6 @@
+use crate::model::{canonical_model, parse_byte_token};
 use crate::pretokenizer::TamilPretokenizer;
-use crate::vocab::{Result, TamilTokenizer, TokenizerError};
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder, Anchored, Input, MatchKind, StartKind};
+use crate::vocab::{Result, TokenizerError};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -48,11 +48,39 @@ struct Symbol {
 /// contiguous when sorted. Indexing by `a` and binary-searching a short slice
 /// replaces the random probe with one sequential read plus a couple of
 /// comparisons.
+/// Pack the second token, the rank and the merged token ID into one word.
+#[inline]
+fn pack(b: u32, rank: u32, new_id: u32) -> u64 {
+    (b as u64) | ((rank as u64) << 21) | ((new_id as u64) << 42)
+}
+
+#[inline]
+fn unpack_b(entry: u64) -> u32 {
+    (entry & 0x1F_FFFF) as u32
+}
+
+#[inline]
+fn unpack_rank(entry: u64) -> u32 {
+    ((entry >> 21) & 0x1F_FFFF) as u32
+}
+
+#[inline]
+fn unpack_new_id(entry: u64) -> u32 {
+    ((entry >> 42) & 0x1F_FFFF) as u32
+}
+
 struct MergeTable {
     /// `offsets[a]..offsets[a + 1]` is the slice of `data` for first token `a`.
     offsets: Vec<u32>,
-    /// Sorted by `b` within each slice.
-    data: Vec<(u32, u32, u32)>, // (b, rank, new_id)
+    /// Sorted by `b` within each slice. Each entry packs the second token,
+    /// the rank and the merged token ID into one word: 17 bits each, which
+    /// fits in 64. The table is read once per adjacent pair per merge, so
+    /// halving its size halves the cache misses.
+    data: Vec<u64>,
+    /// One bit per token ID, set when that ID starts at least one merge.
+    /// Most adjacent pairs in a chunk have no rule at all, and this answers
+    /// that without touching the two large arrays.
+    starts: Vec<u64>,
 }
 
 impl MergeTable {
@@ -78,19 +106,37 @@ impl MergeTable {
             offsets[i + 1] += offsets[i];
         }
 
-        let mut data = vec![(0u32, 0u32, 0u32); pairs.len()];
+        let mut starts = vec![0u64; (vocab_size + 63) / 64];
+        for &(a, ..) in &pairs {
+            starts[(a / 64) as usize] |= 1u64 << (a % 64);
+        }
+
+        let mut data = vec![0u64; pairs.len()];
         let mut cursor = offsets.clone();
         for (a, b, rank, new_id) in pairs {
             let slot = &mut cursor[a as usize];
-            data[*slot as usize] = (b, rank, new_id);
+            data[*slot as usize] = pack(b, rank, new_id);
             *slot += 1;
         }
 
-        Self { offsets, data }
+        Self {
+            offsets,
+            data,
+            starts,
+        }
+    }
+
+    /// Whether any merge starts with this token.
+    #[inline]
+    fn starts_with(&self, a: u32) -> bool {
+        self.starts[(a / 64) as usize] & (1u64 << (a % 64)) != 0
     }
 
     #[inline]
     fn get(&self, a: u32, b: u32) -> Option<(u32, u32)> {
+        if !self.starts_with(a) {
+            return None;
+        }
         let (start, end) = (
             self.offsets[a as usize] as usize,
             self.offsets[(a + 1) as usize] as usize,
@@ -98,9 +144,10 @@ impl MergeTable {
         let slice = &self.data[start..end];
         // Slices are short; a plain scan beats binary search on branch
         // prediction for the 0-3 element case that dominates.
-        for &(b2, rank, new_id) in slice {
+        for &entry in slice {
+            let b2 = unpack_b(entry);
             if b2 == b {
-                return Some((rank, new_id));
+                return Some((unpack_rank(entry), unpack_new_id(entry)));
             }
             if b2 > b {
                 return None;
@@ -117,12 +164,10 @@ impl MergeTable {
 pub struct FastBPEEncoder {
     token_to_id: Arc<FxHashMap<String, u32>>,
     id_to_token: Arc<Vec<String>>,
-    base_automaton: Arc<AhoCorasick>,
-    pattern_to_id: Arc<Vec<u32>>,
     merges: MergeTable,
+    /// The promotion merges, which rank ahead of the learned ones.
+    promotions: MergeTable,
     pretokenizer: TamilPretokenizer,
-    byte_encoder: FxHashMap<u8, char>,
-    byte_decoder: FxHashMap<char, u8>,
     special_tokens: FxHashMap<String, u32>,
     named_tokens_start: u32,
     named_tokens_end: u32,
@@ -262,52 +307,35 @@ impl FastBPEEncoder {
             ));
         }
 
-        // The vocab mixes raw-text tokens (Tamil clusters and merges, trained on
-        // raw text) with 256 single-char byte tokens. Bytes outside printable
-        // ASCII are stood in by chars U+0100.. which can also occur in real text,
-        // so tokens containing a stand-in must never match raw input: they are
-        // reachable only through the byte fallback in `encode_inner`.
-        let (byte_encoder, byte_decoder) = TamilTokenizer::create_byte_mappings();
-        // A stand-in char is any byte token that raw text must never match
-        // directly. Under GPT-2's table bytes 161..=255 map to ordinary Latin-1
-        // chars, so `Ã` is both a byte token and real text; only printable ASCII
-        // is safe to match in the automaton, because for those the byte token
-        // and the raw char really are the same token.
-        let is_stand_in =
-            |c: char| byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32));
+        // The canonical model: the trained vocab plus the characters it uses
+        // but does not hold, the byte tokens, and the promotion merges. The
+        // Hugging Face export builds the same thing, so both engines read one
+        // vocabulary and one merge list and emit the same IDs.
+        let canonical = canonical_model(&vocab, merges);
+        let vocab = canonical.vocab;
+        let vocab_size = vocab.len();
+        let mut id_to_token = vec![String::new(); vocab_size];
+        for (token, &id) in &vocab {
+            id_to_token[id as usize] = token.clone();
+        }
 
-        // Merge results are excluded from base matching so rank order decides.
-        // Rank = position in the trainer's merge list (0 = learned first).
-        let merge_table = MergeTable::build(merges, &vocab, vocab_size);
-        let merged_strings: std::collections::HashSet<String> =
-            merges.iter().map(|(a, b)| format!("{a}{b}")).collect();
+        // Rank is position in the merge list. The promotion merges come first,
+        // so a base cluster exists before any learned merge that consumes it.
+        //
+        // They are kept in a table of their own. There are a few hundred of
+        // them and they run against single characters, so the whole table fits
+        // in cache, while the learned merges do not.
+        let (promotion_merges, learned_merges) = canonical.merges.split_at(canonical.promotions);
+        let promotion_table = MergeTable::build(promotion_merges, &vocab, vocab_size);
+        let merge_table = MergeTable::build(learned_merges, &vocab, vocab_size);
 
-        let base_patterns: Vec<&str> = vocab
-            .keys()
-            .filter(|k| !k.chars().any(is_stand_in) && !merged_strings.contains(k.as_str()))
-            .map(|s| s.as_str())
-            .collect();
-        let pattern_to_id: Vec<u32> = base_patterns.iter().map(|&p| vocab[p]).collect();
-        let base_automaton = AhoCorasickBuilder::new()
-            .match_kind(MatchKind::LeftmostLongest)
-            .start_kind(StartKind::Anchored)
-            .build(&base_patterns)
-            .map_err(|e| {
-                TokenizerError::InvalidData(format!(
-                    "Failed to build Aho-Corasick automaton: {}",
-                    e
-                ))
-            })?;
 
         Ok(Self {
             token_to_id: Arc::new(vocab),
             id_to_token: Arc::new(id_to_token),
-            base_automaton: Arc::new(base_automaton),
-            pattern_to_id: Arc::new(pattern_to_id),
             merges: merge_table,
+            promotions: promotion_table,
             pretokenizer: TamilPretokenizer::new(),
-            byte_encoder: byte_encoder.into_iter().collect(),
-            byte_decoder: byte_decoder.into_iter().collect(),
             special_tokens,
             named_tokens_start,
             named_tokens_end,
@@ -323,10 +351,11 @@ impl FastBPEEncoder {
         // chunk is one allocation per handful of bytes. Reuse one scratch
         // buffer across the whole text instead.
         let mut symbols = Vec::with_capacity(64);
+        let mut cache: Vec<Option<(u32, u32)>> = Vec::with_capacity(64);
         for chunk in chunks {
             symbols.clear();
-            self.segment_into(chunk, &mut symbols);
-            self.apply_merges(&mut symbols);
+            self.seed_chars(chunk, &mut symbols);
+            self.apply_merges(&mut symbols, &mut cache);
             for sym in &symbols {
                 if let Some(id) = sym.id {
                     token_ids.push(id);
@@ -339,99 +368,119 @@ impl FastBPEEncoder {
         token_ids
     }
 
-    /// Longest-match over base tokens only (merge results excluded so rank
-    /// order decides). Unmatched positions become single-char spans.
-    /// Spans are byte ranges, so segmentation allocates nothing.
-    fn segment_into(&self, chunk: &str, symbols: &mut Vec<Symbol>) {
+    /// Seed a chunk with one symbol per character.
+    ///
+    /// Hugging Face's `BPE` model has no seed symbols, so this is the only
+    /// starting point it can express. The base clusters come back through the
+    /// promotion merges, which rank ahead of the learned ones.
+    ///
+    /// A special token is a single symbol, because Hugging Face extracts added
+    /// tokens before the BPE model runs.
+    fn seed_chars(&self, chunk: &str, symbols: &mut Vec<Symbol>) {
         symbols.clear();
-        let mut pos = 0;
-
-        while pos < chunk.len() {
-            let input = Input::new(&chunk[pos..]).anchored(Anchored::Yes);
-            if let Some(mat) = self.base_automaton.find(input) {
-                let id = self.pattern_to_id[mat.pattern().as_usize()];
-                symbols.push(Symbol {
-                    start: pos,
-                    end: pos + mat.end(),
-                    id: Some(id),
-                });
-                pos += mat.end();
-            } else {
-                let ch = chunk[pos..].chars().next().unwrap();
-                let len = ch.len_utf8();
-                let mut buf = [0u8; 4];
-                let single = ch.encode_utf8(&mut buf);
-                let id = if !self.is_byte_stand_in(ch) {
-                    self.token_to_id.get(single).copied()
-                } else {
-                    None
-                };
-                symbols.push(Symbol {
-                    start: pos,
-                    end: pos + len,
-                    id,
-                });
-                pos += len;
-            }
+        if let Some(&id) = self.special_tokens.get(chunk) {
+            symbols.push(Symbol {
+                start: 0,
+                end: chunk.len(),
+                id: Some(id),
+            });
+            return;
+        }
+        for (offset, ch) in chunk.char_indices() {
+            let mut buf = [0u8; 4];
+            let single = ch.encode_utf8(&mut buf);
+            let id = self.token_to_id.get(single).copied();
+            symbols.push(Symbol {
+                start: offset,
+                end: offset + ch.len_utf8(),
+                id,
+            });
         }
     }
 
     /// Standard BPE using fast packed integer lookups in pair_to_merge: repeatedly
     /// merge the adjacent pair with the lowest rank (earliest learned); ties go
     /// to the leftmost pair.
-    fn apply_merges(&self, symbols: &mut Vec<Symbol>) {
-        if self.merges.len() == 0 || symbols.len() < 2 {
+    ///
+    /// Every occurrence of that pair merges in one pass, which is what
+    /// Hugging Face does. Merging one occurrence at a time segments the same
+    /// text differently once a merge creates a pair that outranks the next
+    /// candidate.
+    fn apply_merges(&self, symbols: &mut Vec<Symbol>, cache: &mut Vec<Option<(u32, u32)>>) {
+        // The promotion merges rank ahead of the learned ones, so running them
+        // first is the same as running one list in rank order.
+        self.merge_pass(symbols, cache, &self.promotions);
+        self.merge_pass(symbols, cache, &self.merges);
+    }
+
+    /// Merge until no pair has a rule, taking the lowest rank each time.
+    ///
+    /// `cache` holds the rule for each adjacent pair. A pair keeps its rule
+    /// until one of its symbols changes, so a pass over a chunk looks up each
+    /// pair once rather than once per pass. Without it, a chunk that merges
+    /// into a single token costs one table lookup per pair per pass, and the
+    /// table is too large to stay in cache.
+    fn merge_pass(
+        &self,
+        symbols: &mut Vec<Symbol>,
+        cache: &mut Vec<Option<(u32, u32)>>,
+        table: &MergeTable,
+    ) {
+        if table.len() == 0 || symbols.len() < 2 {
             return;
         }
+        cache.clear();
+        cache.resize(symbols.len() - 1, None);
         while symbols.len() >= 2 {
             let mut best: Option<(usize, u32, u32)> = None;
             for i in 0..symbols.len() - 1 {
-                if let (Some(id_a), Some(id_b)) = (symbols[i].id, symbols[i + 1].id) {
-                    if let Some((rank, new_id)) = self.merges.get(id_a, id_b) {
-                        if best.is_none_or(|(_, r, _)| rank < r) {
-                            best = Some((i, rank, new_id));
-                        }
+                if cache[i].is_none() {
+                    cache[i] = match (symbols[i].id, symbols[i + 1].id) {
+                        (Some(id_a), Some(id_b)) => table.get(id_a, id_b),
+                        _ => None,
+                    };
+                }
+                if let Some((rank, new_id)) = cache[i] {
+                    if best.is_none_or(|(_, r, _)| rank < r) {
+                        best = Some((i, rank, new_id));
                     }
                 }
             }
-            match best {
-                Some((i, _, new_id)) => {
+            let Some((pos, _, new_id)) = best else {
+                break;
+            };
+            let (Some(id_a), Some(id_b)) = (symbols[pos].id, symbols[pos + 1].id) else {
+                break;
+            };
+            let mut i = 0;
+            while i + 1 < symbols.len() {
+                if symbols[i].id == Some(id_a) && symbols[i + 1].id == Some(id_b) {
                     symbols[i].end = symbols[i + 1].end;
                     symbols[i].id = Some(new_id);
                     symbols.remove(i + 1);
+                    cache.remove(i);
+                    // The pair that follows the merge is new, and so is the one
+                    // before it.
+                    if i < cache.len() {
+                        cache[i] = None;
+                    }
+                    if i > 0 {
+                        cache[i - 1] = None;
+                    }
+                } else {
+                    i += 1;
                 }
-                None => break,
             }
         }
     }
 
-    fn is_byte_stand_in(&self, c: char) -> bool {
-        self.byte_decoder.contains_key(&c) && !(33..=126).contains(&(c as u32))
-    }
-
-    /// Resolve a span to token IDs. Anything without an ID falls back to one
-    /// token per UTF-8 byte, so nothing is ever dropped.
+    /// Resolve a span to token IDs. A character the vocab does not hold falls
+    /// back to one token per UTF-8 byte, so nothing is ever dropped.
     fn push_text(&self, token_ids: &mut Vec<u32>, s: &str) {
-        if !s.chars().any(|c| self.is_byte_stand_in(c)) {
-            if let Some(&id) = self.token_to_id.get(s) {
+        for &b in s.as_bytes() {
+            let name = format!("<0x{b:02X}>");
+            if let Some(&id) = self.token_to_id.get(&name) {
                 token_ids.push(id);
-                return;
-            }
-        }
-        for ch in s.chars() {
-            if !self.is_byte_stand_in(ch) {
-                let mut buf = [0u8; 4];
-                let single = ch.encode_utf8(&mut buf);
-                if let Some(&id) = self.token_to_id.get(single) {
-                    token_ids.push(id);
-                    continue;
-                }
-            }
-            let mut buf = [0u8; 4];
-            for &b in ch.encode_utf8(&mut buf).as_bytes() {
-                if let Some(&id) = self.token_to_id.get(&self.byte_encoder[&b].to_string()) {
-                    token_ids.push(id);
-                }
             }
         }
     }
@@ -479,22 +528,22 @@ impl FastBPEEncoder {
         self.decode_inner(&filtered)
     }
 
-    /// Reverse of `encode_inner`: join token strings, map every byte-mapped char
-    /// back to its raw byte, then reinterpret those bytes as UTF-8.
+    /// Reverse of `encode_inner`: a `<0xNN>` token contributes its byte, and
+    /// every other token contributes its text. Then the bytes are read as
+    /// UTF-8.
+    ///
+    /// Token strings are literal text. The vocab holds Tamil clusters learned
+    /// from raw text, so a token like `café` is the word and not three bytes,
+    /// and decoding it as bytes would replace it with a replacement character.
     fn decode_inner(&self, token_ids: &[u32]) -> String {
         let mut bytes: Vec<u8> = Vec::with_capacity(token_ids.len() * 4);
         for &id in token_ids {
             let Some(token) = self.id_to_token.get(id as usize) else {
                 continue;
             };
-            for ch in token.chars() {
-                match self.byte_decoder.get(&ch) {
-                    Some(&b) => bytes.push(b),
-                    None => {
-                        let mut buf = [0u8; 4];
-                        bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                    }
-                }
+            match parse_byte_token(token) {
+                Some(b) => bytes.push(b),
+                None => bytes.extend_from_slice(token.as_bytes()),
             }
         }
         String::from_utf8_lossy(&bytes).into_owned()

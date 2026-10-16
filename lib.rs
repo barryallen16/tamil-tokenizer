@@ -1,9 +1,11 @@
 pub mod encoder;
+pub mod model;
 pub mod pretokenizer;
 pub mod trainer;
 pub mod vocab;
 
 pub use encoder::FastBPEEncoder;
+pub use model::{canonical_model, CanonicalModel};
 pub use pretokenizer::TamilPretokenizer;
 pub use trainer::OptimizedBPETrainer;
 pub use vocab::{Result as TokenizerResult, TamilTokenizer, TokenizerError};

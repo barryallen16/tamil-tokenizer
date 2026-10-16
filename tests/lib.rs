@@ -13,6 +13,100 @@ mod tests {
         TamilTokenizer::new().vocab.into_iter().collect()
     }
 
+    // === Canonical model (6 tests) ===
+
+    /// The encoder has to keep the IDs of the trained vocab, or every model
+    /// trained with it would point at the wrong embedding rows.
+    #[test]
+    fn test_encoder_keeps_the_trained_ids() {
+        let tok = TamilTokenizer::new();
+        let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
+        let enc = FastBPEEncoder::new(vocab.clone()).expect("encoder");
+
+        for (token, &id) in &vocab {
+            if token.chars().count() == 1 {
+                assert_eq!(
+                    enc.encode_ordinary(token).first().copied(),
+                    Some(id),
+                    "the encoder moved {:?}",
+                    token
+                );
+            }
+        }
+    }
+
+    /// Every byte has a token, spelled the way Hugging Face spells it.
+    #[test]
+    fn test_byte_fallback_tokens_are_named_the_hf_way() {
+        let tok = TamilTokenizer::new();
+        let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
+        let model = tamil_tokenizer::canonical_model(&vocab, &[]);
+        for b in 0..=255u8 {
+            let name = format!("<0x{b:02X}>");
+            assert!(model.vocab.contains_key(&name), "no byte token for {}", b);
+        }
+        assert_eq!(
+            model.vocab.len(),
+            tok.vocab.len() + model.added_prims + 256,
+            "the canonical model holds the byte tokens and the missing characters"
+        );
+    }
+
+    /// A character the vocab does not hold becomes one token per UTF-8 byte,
+    /// and the decoder puts the bytes back together.
+    #[test]
+    fn test_unknown_characters_become_byte_tokens() {
+        let tok = TamilTokenizer::new();
+        let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
+        let enc = FastBPEEncoder::new(vocab).expect("encoder");
+        let ids = enc.encode_ordinary("\u{65e5}");
+        assert_eq!(ids.len(), 3, "one token per UTF-8 byte");
+        assert_eq!(enc.decode(&ids), "\u{65e5}");
+    }
+
+    /// The merge semantics have to match Hugging Face's: the lowest-ranked
+    /// pair merges, and every occurrence of it merges in the same pass.
+    ///
+    /// With one rule, `a b a b` becomes two tokens. Merging one occurrence at
+    /// a time would leave the second pair alone, because the merged token has
+    /// no rule of its own.
+    #[test]
+    fn test_every_occurrence_of_a_pair_merges_in_one_pass() {
+        let vocab: FxHashMap<String, u32> = ["a", "b", "ab"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| (t.to_string(), i as u32))
+            .collect();
+        let enc =
+            FastBPEEncoder::new_with_merges(vocab, &[("a".to_string(), "b".to_string())])
+                .expect("encoder");
+        assert_eq!(enc.encode_ordinary("abab"), vec![2, 2]);
+    }
+
+    /// A special token in the text is one token, because Hugging Face extracts
+    /// added tokens before the BPE model runs.
+    #[test]
+    fn test_special_token_in_text_is_one_token() {
+        let enc = make_encoder();
+        let ids = enc.encode_ordinary("<|endoftext|>");
+        assert_eq!(ids.len(), 1);
+        assert!(enc.is_special_token(ids[0]));
+    }
+
+    /// Text that no byte table handles has to survive a round trip.
+    #[test]
+    fn test_roundtrip_scripts_outside_latin() {
+        for text in [
+            "\u{65e5}\u{672c}\u{8a9e}",
+            "\u{1f600}",
+            "caf\u{e9} \u{f1} \u{ff}",
+        ] {
+            let enc = make_encoder();
+            let ids = enc.encode_ordinary(text);
+            assert_eq!(enc.decode(&ids), text, "roundtrip failed for {:?}", text);
+        }
+    }
+
     // === TamilTokenizer (6 tests) ===
 
     #[test]

@@ -57,7 +57,9 @@ def load_tokenizer(name):
     from transformers import AutoTokenizer
 
     repo, subfolder = TOKENIZERS[name]
-    return AutoTokenizer.from_pretrained(repo, subfolder=subfolder)
+    if subfolder:
+        return AutoTokenizer.from_pretrained(repo, subfolder=subfolder)
+    return AutoTokenizer.from_pretrained(repo)
 
 
 def tokenize_lines(tok, lines, label, nbytes):

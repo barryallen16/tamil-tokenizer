@@ -68,7 +68,10 @@ def tokenize_lines(tok, lines, label, nbytes):
     The cache name carries the size of the input, so a short smoke run does not
     hand its tokenized corpus to a later full run.
     """
-    cache = os.path.join(RESULTS, f'{label}_{nbytes}.npy')
+    # The label names the split and carries a slash, which is a directory in a
+    # file name. Flatten it for the cache.
+    safe = label.replace('/', '_').replace(chr(92), '_')
+    cache = os.path.join(RESULTS, f'{safe}_{nbytes}.npy')
     if os.path.exists(cache):
         return np.load(cache)
     os.makedirs(RESULTS, exist_ok=True)

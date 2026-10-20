@@ -16,6 +16,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract_wiki_fast import SENTENCE_SPLIT, clean_wikitext, is_tamil_prose
 
+# Resolve the corpora from the repo, not the caller's working directory. The
+# Kaggle runs start somewhere else and the mix used to fail on relative paths.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA = os.path.join(ROOT, 'data')
+
 
 def prep(src, out_dir, holdout=50000):
     os.makedirs(out_dir, exist_ok=True)
@@ -124,17 +129,20 @@ if __name__ == '__main__':
         sample = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else None
         which = sys.argv[4] if len(sys.argv) > 4 else 'wiki+ic'
         sources = {
-            'wiki': [('data/wiki/train.txt', 1)],
-            'ic': [('data/indiccorp/train.txt', 1)],
-            'wiki+ic': [('data/wiki/train.txt', 1), ('data/indiccorp/train.txt', 1)],
+            'wiki': [(os.path.join(DATA, 'wiki', 'train.txt'), 1)],
+            'ic': [(os.path.join(DATA, 'indiccorp', 'train.txt'), 1)],
+            'wiki+ic': [
+                (os.path.join(DATA, 'wiki', 'train.txt'), 1),
+                (os.path.join(DATA, 'indiccorp', 'train.txt'), 1),
+            ],
             'wiki+ic+transcripts': [
-                ('data/wiki/train.txt', 1),
-                ('data/indiccorp/train.txt', 1),
-                ('data/transcripts/train.txt', 1),
+                (os.path.join(DATA, 'wiki', 'train.txt'), 1),
+                (os.path.join(DATA, 'indiccorp', 'train.txt'), 1),
+                (os.path.join(DATA, 'transcripts', 'train.txt'), 1),
             ],
             'wiki+transcripts': [
-                ('data/wiki/train.txt', 1),
-                ('data/transcripts/train.txt', 1),
+                (os.path.join(DATA, 'wiki', 'train.txt'), 1),
+                (os.path.join(DATA, 'transcripts', 'train.txt'), 1),
             ],
         }[which]
         sys.exit(mix(sources, out, sample))

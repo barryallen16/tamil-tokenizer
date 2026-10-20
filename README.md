@@ -510,18 +510,23 @@ None of them says the tokenizer produces a better model, which is the claim that
 The budget is counted in tokens, so a tokenizer that packs more text into a token covers more of the corpus for the same compute, which is the whole mechanism the compression claim rests on.
 The score is bits per byte, because loss per token cannot be compared across tokenizers: a tokenizer that puts more text in a token has fewer tokens to spread the loss over.
 
-Trained on a T4 (Colab for the token budget, Kaggle for the byte-matched control), 6 layers, 384 wide, 512 context, 20M training tokens each:
+Trained on T4s (Kaggle for the seeds and the byte-matched control, Colab for the earlier replication), 6 layers, 384 wide, 512 context, 20M training tokens each:
 
 | tokenizer | vocab | params | tokens | text seen | wiki bits/byte | transcripts bits/byte |
 |---|---:|---:|---:|---:|---:|---:|
-| **ours** | 122,723 | 58.0M | 18.8M | **308 MB (all of it)** | **0.9189** | **0.9149** |
-| `indictok-256k` | 256,000 | 109.1M | 20.0M | 257 MB | 1.0124 | 0.9879 |
-| `mBERT` | 119,547 | 56.8M | 20.0M | 129 MB | 1.2582 | 1.3258 |
+| **ours** | 122,723 | 58.0M | 18.8M | **309 MB (all of it)** | **0.9193** (0.9188-0.9198) | **0.9150** (0.9147-0.9153) |
+| `indictok-256k` | 256,000 | 109.1M | 20.0M | 257 MB | 1.0123 (1.0120-1.0125) | 0.9877 (0.9869-0.9890) |
+| `mBERT` | 119,547 | 56.8M | 20.0M | 129 MB | 1.2575 (1.2574-1.2576) | 1.3266 (flat) |
+
+Each score is the mean of three seeds (1234, 1235, 1236) on the same corpus, with the range in parentheses.
+A flat range means the seeds agree to four decimals.
+The spread within a tokenizer is at most 0.0022 bits/byte, against a smallest gap of 0.072, so the ranking is 33 times beyond the seed noise.
+An earlier run of seed 1234 on a Colab rebuild of the corpus scored 0.9189 and 0.9149, both inside these ranges.
 
 Text seen is the consumed tokens times the bytes per token measured on the training text, or the corpus size when the run exhausted it.
 An earlier revision derived that factor from the held-out splits, which made the column low by about 4% to 12% depending on the row.
 
-Ours is 10.2% better than `indictok-256k` on the wiki split and 8.0% better on the transcripts split, and 36.9% and 44.9% better than mBERT.
+Ours is 10.1% to 10.2% better than `indictok-256k` on the wiki split and 7.9% to 8.1% on the transcripts split, and 36.7% to 36.9% and 44.9% to 45.0% better than mBERT.
 
 #### The byte-matched control
 
@@ -534,31 +539,31 @@ The control gives every tokenizer the same 250 MB of the same corpus, and the sc
 | `indictok-256k` | 19.5M | 250 MB | 1.0123 | 0.9883 |
 | `mBERT` | 38.7M | 250 MB | 1.2573 | 1.3268 |
 
-The ranking and the margins are unchanged: 10.2% and 8.0% against `indictok-256k`, 36.8% and 44.9% against mBERT.
+The ranking and the margins are unchanged: 10.2% and 8.0% against `indictok-256k`, 36.8% and 44.9% against mBERT, all within 0.1 points of the three-seed range.
 The result is about segmentation, not about how much text the model was shown.
 
 The informative row is mBERT, because it is the only one whose two protocols differ materially.
-Matching bytes nearly doubled its training text, from 129 MB to 250 MB, and its bits per byte did not move: 1.2582 to 1.2573 on wiki, 1.3258 to 1.3268 on transcripts.
+Matching bytes nearly doubled its training text, from 129 MB to 250 MB, and its bits per byte did not move: 1.2575 to 1.2573 on wiki, 1.3266 to 1.3268 on transcripts.
 More coverage was not what it lacked.
-Ours is the other end of the range: the token-budget row ran out of corpus at 18.8M tokens, so it had seen all 308 MB, and the first 250 MB reproduces it within 0.0006 bits/byte.
+Ours is the other end of the range: the token-budget row ran out of corpus at 18.8M tokens, so it had seen all of it, and the first 250 MB reproduces it within 0.0006 bits/byte.
 
 The comparison against mBERT is the clean one on model and vocabulary size: 119,547 tokens against 122,723, and 56.8M parameters against 58.0M.
-The token budget itself was not clean, because it gave mBERT 129 MB against our 308 MB, and that is exactly what the byte-matched control removes.
+The token budget itself was not clean, because it gave mBERT 129 MB against all 309 MB, and that is exactly what the byte-matched control removes.
 With the text matched, ours is still 36.8% and 44.9% ahead, so the gap is segmentation and not coverage.
 
 The comparison against `indictok-256k` needs its caveat: its 256,000-token vocabulary makes its embedding table 109.1M parameters against our 58.0M, so part of what it loses is vocabulary size and not tokenization.
 Ours wins it anyway, with half the parameters, which is the opposite of what the size difference would predict.
-Our 20M-token budget was more than the corpus could fill: the row stopped at 18.8M tokens because it ran out, so ours saw the whole 308 MB.
+Our 20M-token budget was more than the corpus could fill: the row stopped at 18.8M tokens because it ran out, so ours saw the whole training text.
 
-What this does not show: each row is one seed (1234), so there is no variance estimate; the byte-matched control is a second budget, not a second seed.
+What this does not show: the byte-matched control is one seed per row, though its margins are within 0.1 points of the three-seed range above.
 And a 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute numbers are high.
 It is a language model, not a downstream task, so no classification or question answering score comes out of it.
 
 Reproduce:
 
 ```bash
-# fixed token budget
-python scripts/downstream_lm.py --tokenizer ours --tokens 20000000 \
+# fixed token budget, once per seed (1234, 1235, 1236)
+python scripts/downstream_lm.py --tokenizer ours --tokens 20000000 --seed 1235 \
     --train-file data/mixed/train_prefixed.txt --train-mb 0 \
     --eval-file data/wiki/test.txt --eval-file data/transcripts/test.txt
 
@@ -571,8 +576,9 @@ python scripts/downstream_lm.py --report              # fixed token budget
 python scripts/downstream_lm.py --report --byte-run   # byte-matched control
 ```
 
-`scripts/colab_downstream.py` runs the same thing on a Colab GPU and builds the corpora there from public sources; `--bytes` selects the byte-matched budget.
-The raw results are in `results/downstream/`, with the byte-matched runs in `*_bytes.json`.
+`scripts/colab_downstream.py` runs the same thing on a Colab GPU and builds the corpora there from public sources; `--bytes` and `--seed` pass the budget and the seed through.
+The raw results are in `results/downstream/`, with the byte-matched runs in `*_bytes.json` and the three seeds in `*_seed*.json`.
+`--report` prints the original single runs; the three-seed table above is the mean over the `*_seed*.json` files.
 
 
 ### How encoding works

@@ -3,7 +3,7 @@
   "vocab": 122723,
   "parameters": 57969792,
   "train_tokens": 18848322,
-  "train_bytes_seen": 308000000,
+  "train_bytes_seen": 309400000,
   "bytes_per_token_train": 16.415439740471328,
   "scores": {
     "wiki/test": {

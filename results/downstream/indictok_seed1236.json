@@ -1,0 +1,48 @@
+{
+  "tokenizer": "indictok",
+  "vocab": 256000,
+  "parameters": 109148160,
+  "train_tokens": 19998496,
+  "train_bytes_seen": 256854561,
+  "bytes_per_token_train": 12.843693886009975,
+  "scores": {
+    "wiki/test": {
+      "bits_per_byte": 1.0120332905313736,
+      "nll_nats_per_token": 8.288902365333113,
+      "tokens_per_byte": 0.08489712257270018,
+      "eval_tokens": 266231,
+      "eval_bytes": 3145831
+    },
+    "transcripts/test": {
+      "bits_per_byte": 0.9890480656153796,
+      "nll_nats_per_token": 7.469791583233032,
+      "tokens_per_byte": 0.09203459311825059,
+      "eval_tokens": 288715,
+      "eval_bytes": 3145828
+    }
+  },
+  "seconds": 1721.1742129325867,
+  "args": {
+    "tokenizer": "indictok",
+    "tokens": 20000000,
+    "bytes": 0,
+    "train_file": "/kaggle/tmp/repo/data/mixed/train_prefixed.txt",
+    "eval_file": [
+      "/kaggle/tmp/repo/data/wiki/test.txt",
+      "/kaggle/tmp/repo/data/transcripts/test.txt"
+    ],
+    "train_mb": 0,
+    "eval_mb": 3,
+    "context": 512,
+    "d_model": 384,
+    "layers": 6,
+    "heads": 6,
+    "batch": 16,
+    "micro_batch": 2,
+    "eval_batch": 2,
+    "lr": 0.003,
+    "seed": 1236,
+    "report": false,
+    "byte_run": false
+  }
+}

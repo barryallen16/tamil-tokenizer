@@ -518,7 +518,7 @@ Trained on a T4 (Colab for the token budget, Kaggle for the byte-matched control
 | `indictok-256k` | 256,000 | 109.1M | 20.0M | 257 MB | 1.0124 | 0.9879 |
 | `mBERT` | 119,547 | 56.8M | 20.0M | 129 MB | 1.2582 | 1.3258 |
 
-Text seen is the consumed tokens times the bytes per token measured on the training text.
+Text seen is the consumed tokens times the bytes per token measured on the training text, or the corpus size when the run exhausted it.
 An earlier revision derived that factor from the held-out splits, which made the column low by about 4% to 12% depending on the row.
 
 Ours is 10.2% better than `indictok-256k` on the wiki split and 8.0% better on the transcripts split, and 36.9% and 44.9% better than mBERT.

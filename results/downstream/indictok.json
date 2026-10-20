@@ -3,7 +3,8 @@
   "vocab": 256000,
   "parameters": 109148160,
   "train_tokens": 20000000,
-  "train_bytes_seen": 226075922,
+  "train_bytes_seen": 256873878,
+  "bytes_per_token_train": 12.843693886009975,
   "scores": {
     "wiki/test": {
       "bits_per_byte": 1.012360626395818,
@@ -42,5 +43,6 @@
     "lr": 0.003,
     "seed": 1234,
     "report": false
-  }
+  },
+  "note": "Corrected on 21 October 2026: train_bytes_seen was derived from the eval splits' bytes per token, which is 4% to 12% low on the training text. It now uses the bytes per token measured on the training text in the byte-matched run, on a rebuild of the same corpus. train_tokens and the scores are unchanged."
 }

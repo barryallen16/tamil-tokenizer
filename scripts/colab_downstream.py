@@ -108,6 +108,7 @@ def main():
     ap.add_argument('--heads', type=int, default=6)
     ap.add_argument('--batch', type=int, default=16)
     ap.add_argument('--lr', type=float, default=3e-3)
+    ap.add_argument('--seed', type=int, default=1234)
     ap.add_argument('--tokenizers', default='ours,indictok,mbert')
     ap.add_argument('--skip-data', action='store_true')
     args = ap.parse_args()
@@ -131,7 +132,7 @@ def main():
                '--eval-mb', str(args.eval_mb), '--context', str(args.context),
                '--d-model', str(args.d_model), '--layers', str(args.layers),
                '--heads', str(args.heads), '--batch', str(args.batch),
-               '--lr', str(args.lr)]
+               '--lr', str(args.lr), '--seed', str(args.seed)]
         if args.bytes:
             cmd += ['--bytes', str(args.bytes)]
         for e in evals:

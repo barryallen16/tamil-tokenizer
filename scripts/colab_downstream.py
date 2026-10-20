@@ -19,6 +19,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -111,6 +112,14 @@ def main():
     ap.add_argument('--seed', type=int, default=1234)
     ap.add_argument('--tokenizers', default='ours,indictok,mbert')
     ap.add_argument('--skip-data', action='store_true')
+    ap.add_argument('--classify', action='store_true',
+                    help='after each language-model run, fine-tune the saved '
+                         'model on the Tamil news classification task')
+    ap.add_argument('--cls-seeds', default='1234,1235,1236')
+    ap.add_argument('--cls-epochs', type=int, default=4)
+    ap.add_argument('--cls-batch', type=int, default=64)
+    ap.add_argument('--cls-lr', type=float, default=1e-4)
+    ap.add_argument('--cls-max-len', type=int, default=64)
     args = ap.parse_args()
 
     if hasattr(sys.stdout, 'reconfigure'):
@@ -126,6 +135,7 @@ def main():
 
     for name in args.tokenizers.split(','):
         print(f'\n=== {name} ===', flush=True)
+        checkpoint = os.path.join(tempfile.gettempdir(), f'{name}_lm.pt')
         cmd = [sys.executable, os.path.join(ROOT, 'scripts', 'downstream_lm.py'),
                '--tokenizer', name, '--tokens', str(args.tokens),
                '--train-file', train_file, '--train-mb', str(args.train_mb),
@@ -133,6 +143,8 @@ def main():
                '--d-model', str(args.d_model), '--layers', str(args.layers),
                '--heads', str(args.heads), '--batch', str(args.batch),
                '--lr', str(args.lr), '--seed', str(args.seed)]
+        if args.classify:
+            cmd += ['--save-checkpoint', checkpoint]
         if args.bytes:
             cmd += ['--bytes', str(args.bytes)]
         for e in evals:
@@ -140,6 +152,21 @@ def main():
         start = time.time()
         run(cmd)
         print(f'  {name} took {time.time() - start:.0f}s', flush=True)
+
+        if args.classify:
+            print(f'\n=== {name}: classification ===', flush=True)
+            cls = [sys.executable, os.path.join(ROOT, 'scripts',
+                                                'classify_tamil.py'),
+                   '--tokenizer', name, '--checkpoint', checkpoint,
+                   '--seeds', args.cls_seeds, '--epochs', str(args.cls_epochs),
+                   '--batch', str(args.cls_batch), '--lr', str(args.cls_lr),
+                   '--max-len', str(args.cls_max_len)]
+            start = time.time()
+            run(cls)
+            print(f'  {name} classification took {time.time() - start:.0f}s',
+                  flush=True)
+            if os.path.exists(checkpoint):
+                os.remove(checkpoint)
 
     print('\n=== comparison ===', flush=True)
     report = [sys.executable, os.path.join(ROOT, 'scripts', 'downstream_lm.py'), '--report']

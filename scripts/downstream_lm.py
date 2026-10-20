@@ -144,13 +144,16 @@ def build_model(vocab_size, d_model, n_layers, n_heads, context):
             elif isinstance(m, nn.Embedding):
                 nn.init.normal_(m.weight, std=0.02)
 
-        def forward(self, idx):
+        def hidden(self, idx):
             b, t = idx.shape
             pos = torch.arange(t, device=idx.device)
             x = self.embed(idx) + self.pos(pos)[None]
             for block in self.blocks:
                 x = block(x)
-            return self.head(self.ln_f(x))
+            return self.ln_f(x)
+
+        def forward(self, idx):
+            return self.head(self.hidden(idx))
 
     return MiniLM()
 
@@ -288,6 +291,8 @@ def main():
     ap.add_argument('--eval-batch', type=int, default=2)
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--seed', type=int, default=1234)
+    ap.add_argument('--save-checkpoint', default='',
+                    help='write the trained model here for the classification run')
     ap.add_argument('--report', action='store_true')
     ap.add_argument('--byte-run', action='store_true',
                     help='with --report, show the byte-matched runs')
@@ -358,6 +363,10 @@ def main():
 
     elapsed, consumed = train(model, train_ids, budget_tokens, args.context, args.batch,
                               args.lr, args.seed, micro_batch=args.micro_batch)
+    if args.save_checkpoint:
+        torch.save({'state_dict': model.state_dict(), 'vocab': vocab,
+                    'args': vars(args)}, args.save_checkpoint)
+        print(f'  saved checkpoint {args.save_checkpoint}', flush=True)
     # The byte-matched comparison is only a comparison if this is the same
     # for every tokenizer, so it is reported from what was consumed.
     bytes_seen = consumed * bytes_per_token

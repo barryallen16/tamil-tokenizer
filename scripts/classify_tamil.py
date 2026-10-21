@@ -12,6 +12,8 @@ transfers best to a real classification task.
 
 Usage:
   python classify_tamil.py --tokenizer ours --checkpoint /tmp/ours.pt
+
+Requires `pip install torch transformers tokenizers pandas pyarrow`.
 """
 import argparse
 import json

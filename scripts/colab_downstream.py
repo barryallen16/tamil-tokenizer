@@ -118,7 +118,7 @@ def main():
     ap.add_argument('--cls-seeds', default='1234,1235,1236')
     ap.add_argument('--cls-epochs', type=int, default=4)
     ap.add_argument('--cls-batch', type=int, default=64)
-    ap.add_argument('--cls-lr', type=float, default=1e-4)
+    ap.add_argument('--cls-lr', type=float, default=1e-3)
     ap.add_argument('--cls-max-len', type=int, default=64)
     args = ap.parse_args()
 

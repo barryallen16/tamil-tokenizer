@@ -210,7 +210,7 @@ def main():
     ap.add_argument('--seeds', default='1234,1235,1236')
     ap.add_argument('--epochs', type=int, default=4)
     ap.add_argument('--batch', type=int, default=64)
-    ap.add_argument('--lr', type=float, default=1e-4)
+    ap.add_argument('--lr', type=float, default=1e-3)
     ap.add_argument('--weight-decay', type=float, default=0.01)
     ap.add_argument('--max-len', type=int, default=64)
     ap.add_argument('--val-frac', type=float, default=0.1)

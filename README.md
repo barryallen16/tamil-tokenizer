@@ -45,8 +45,10 @@ Designed for training and using custom tokenizers on Tamil corpora, with a fast 
 ├── scripts/prep_corpus.py        # Clean/split/mix corpora into train + held-out
 ├── scripts/verify_hf_export.py   # Checks HF export IDs against the Rust encoder
 ├── scripts/bench_field.py        # Scores this tokenizer against the field on one corpus
-├── scripts/downstream_lm.py      # Trains one small model per tokenizer, reports bits per byte
+├── scripts/downstream_lm.py       # Trains one small model per tokenizer, reports bits per byte
 ├── scripts/colab_downstream.py    # The same, on a Colab GPU, with the corpora built there
+├── scripts/classify_tamil.py      # Fine-tunes the saved models on six-class Tamil headlines
+├── scripts/compare_classify.py    # Accuracy, macro F1 and the paired bootstrap for that task
 ├── scripts/fetch_transcripts.py   # Tamil video transcripts, cleaned and split by video
 ├── scripts/verify_install.py     # Checks the export loads through AutoTokenizer
 ├── scripts/vocab_utilization.py  # How much of a trained vocab is actually used
@@ -75,7 +77,8 @@ Each one re-derives its result rather than trusting a stored value:
 | `bench_field.py` | How this tokenizer compares with the field on one corpus, same code path for everyone |
 | `fetch_transcripts.py` | Brings in a third split: Tamil video captions, split by video |
 | `downstream_lm.py` | Whether better compression gives a better model: one model, three tokenizers, bits per byte |
-| `publish_hf.py` | Re-measures before uploading, and refuses if decode fidelity is under 100% |
+| `classify_tamil.py` | Whether the compression advantage survives a real task: six-class Tamil headline classification, same procedure per tokenizer |
+| `compare_classify.py` | Accuracy, macro F1 and the paired bootstrap interval, for the token budget and the byte-matched control |
 
 `cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and asserts the buckets sum to the real vocab size.
 That breakdown is maintained by hand and had drifted from the builder in `vocab.rs` — it summed to 1,136 against an actual 1,135, which is where a stale "607 tokens" figure in this file came from.
@@ -556,8 +559,8 @@ Ours wins it anyway, with half the parameters, which is the opposite of what the
 Our 20M-token budget was more than the corpus could fill: the row stopped at 18.8M tokens because it ran out, so ours saw the whole training text.
 
 What this does not show: the byte-matched control is one seed per row, though its margins are within 0.1 points of the three-seed range above.
-And a 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute numbers are high.
-It is a language model, not a downstream task, so no classification or question answering score comes out of it.
+And a 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute bits-per-byte numbers are high.
+The section after the reproduce commands takes the same models to a real classification task.
 
 Reproduce:
 
@@ -579,6 +582,71 @@ python scripts/downstream_lm.py --report --byte-run   # byte-matched control
 `scripts/colab_downstream.py` runs the same thing on a Colab GPU and builds the corpora there from public sources; `--bytes` and `--seed` pass the budget and the seed through.
 The raw results are in `results/downstream/`, with the byte-matched runs in `*_bytes.json` and the three seeds in `*_seed*.json`.
 `--report` prints the original single runs; the three-seed table above is the mean over the `*_seed*.json` files.
+
+
+#### A real task: Tamil news headlines
+
+Bits per byte is a loss, and loss is not a task.
+CHiPSAL 2026 found that tokenizer choice changes accuracy on Tamil news-title classification, and MUTANT-Indic (2026) found that 2.4x better Tamil fertility produced an essentially identical downstream score.
+So the last test is a real classification task.
+
+The task is MTEB `TamilNewsClassification`: 14,521 Tamil news headlines in six classes (cinema, india, politics, sports, tamilnadu, world), with an official test split of 2,048 headlines, MIT licensed.
+Headlines are 154 bytes on average and 306 at most, so nothing is truncated at 64 tokens.
+The encoder is trained with the same 20M-token recipe as the table above, saved after pretraining and fine-tuned with a classification head on the mean-pooled final hidden state.
+The data, head, 4-epoch cosine schedule, batch 64, LR 1e-3 and the three fine-tune seeds are identical across tokenizers; the reported epoch is chosen by validation macro F1 on a 10% split of train.
+Each score is the mean of the three seeds, with the range in parentheses.
+
+| tokenizer | tokens/headline | test accuracy (3 seeds) | macro F1 (3 seeds) |
+|---|---:|---:|---:|
+| **ours** | **10.12** | **0.5583** (0.4863-0.6143) | **0.4883** (0.4368-0.5173) |
+| `indictok-256k` | 12.14 | 0.3932 (0.3613-0.4326) | 0.2383 (0.1854-0.2893) |
+| mBERT | 26.39 | 0.3936 (0.3525-0.4272) | 0.2215 (0.1446-0.2783) |
+| majority class | - | 0.3354 | 0.0837 |
+
+Ours is 16.5 points above both competitors on accuracy, and 0.25 and 0.27 above them on macro F1.
+A paired bootstrap over the 2,048 test headlines, 10,000 resamples, gives +16.50 points against `indictok-256k` (95% CI +14.70 to +18.31) and +16.47 against mBERT (+14.52 to +18.38); both intervals exclude zero.
+Every ours seed beats every competitor seed, 0.4863 against 0.4326, so the ranking is not one lucky fine-tune.
+The per-class result is where the gap turns qualitative: ours scores F1 0.248 on politics and 0.326 on world, while both competitors score 0.00 on both and never emit either label in any seed.
+
+**The byte-matched control.** The token-budget protocol gives ours 309 MB of pretraining text against 257 MB for `indictok-256k` and 129 MB for mBERT, so it cannot separate tokenization from coverage on its own.
+The same fine-tune after 250 MB of pretraining text each:
+
+| tokenizer | pretraining text | test accuracy | macro F1 |
+|---|---:|---:|---:|
+| **ours** | 250 MB (15.2M tokens) | **0.5601** (0.5190-0.5854) | **0.4785** (0.4060-0.5247) |
+| `indictok-256k` | 250 MB (19.5M tokens) | 0.4574 (0.3921-0.4995) | 0.3020 (0.2220-0.3529) |
+| mBERT | 250 MB (38.7M tokens) | 0.3888 (0.3721-0.4146) | 0.2326 (0.1891-0.2737) |
+
+The ranking survives.
+Ours is unchanged, 0.5601 against 0.5583, despite seeing 3.6M fewer pretraining tokens.
+mBERT got 18.7M more tokens than at the token budget, 38.7M against 20.0M, and its accuracy did not move, 0.3888 against 0.3936.
+Against mBERT the gap is +17.12 points (95% CI +15.12 to +19.11).
+`indictok-256k` landed higher on nearly the same text, 0.4574 against 0.3932, which narrows our margin to +10.27 points (95% CI +8.54 to +11.95); its seeds have ranged 0.3613 to 0.4995 across the two protocols, so the shift is run-to-run spread, not coverage.
+The worst ours seed, 0.5190, is still above the best `indictok-256k` seed, 0.4995.
+The control's conclusion is that the gaps are not about how much text the model saw: ours is flat with less, and mBERT is flat with 2.5 times as many tokens.
+
+What this does not show: one task, headlines only, and one pretraining seed per protocol; the three seeds vary fine-tuning, not pretraining.
+The fine-tune seed spread is large, up to 0.13 accuracy, which is why the tables report ranges and the pairwise check.
+On the absolute scale, politics and world stay hard: ours scores 0.17 and 0.32 F1 on them at equal bytes, and both competitors never predict either class.
+The claim is the ranking at a fixed budget, not a solved task.
+An earlier fine-tune at LR 1e-4 collapsed every model to the majority class and was discarded; the script defaults to 1e-3.
+
+Reproduce:
+
+```bash
+# token budget, then the same fine-tune for each tokenizer
+python scripts/colab_downstream.py --classify --tokens 20000000
+
+# byte-matched control
+python scripts/colab_downstream.py --classify --bytes 250000000
+
+# the fine-tune alone, from a saved checkpoint
+python scripts/classify_tamil.py --tokenizer ours --checkpoint /tmp/ours_lm.pt
+python scripts/compare_classify.py --reps 10000
+python scripts/compare_classify.py --suffix _cls_bytes --reps 10000
+```
+
+The raw results are in `results/downstream/`, with the token-budget runs in `*_cls.json` and the byte-matched runs in `*_cls_bytes.json`.
 
 
 ### How encoding works

@@ -13,7 +13,7 @@ for the same number of tokens, and reports bits per byte on two held-out
 splits.
 
 Usage on a Colab VM:
-  python colab_downstream.py --tokens 20000000 --gpu
+  python colab_downstream.py --tokens 20000000
 """
 import argparse
 import os

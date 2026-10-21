@@ -31,10 +31,10 @@ def macro_f1(y, pred, n_classes):
     return float(np.mean(scores))
 
 
-def load(directory, names):
+def load(directory, names, suffix):
     runs = {}
     for name in names:
-        path = os.path.join(directory, f'{name}_cls.json')
+        path = os.path.join(directory, f'{name}{suffix}.json')
         if not os.path.exists(path):
             print(f'missing {path}', file=sys.stderr)
             return None
@@ -64,11 +64,13 @@ def paired_bootstrap(diff, reps, seed):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dir', default=DEFAULT_DIR)
+    ap.add_argument('--suffix', default='_cls',
+                    help='file suffix before .json, e.g. _cls_bytes')
     ap.add_argument('--reps', type=int, default=10000)
     ap.add_argument('--seed', type=int, default=1234)
     args = ap.parse_args()
 
-    runs = load(args.dir, NAMES)
+    runs = load(args.dir, NAMES, args.suffix)
     if runs is None:
         return 1
     y = np.array(runs['ours']['test_labels'])

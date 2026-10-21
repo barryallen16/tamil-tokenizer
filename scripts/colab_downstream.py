@@ -155,12 +155,15 @@ def main():
 
         if args.classify:
             print(f'\n=== {name}: classification ===', flush=True)
+            suffix = '_cls_bytes' if args.bytes else '_cls'
+            out = os.path.join(ROOT, 'results', 'downstream',
+                               f'{name}{suffix}.json')
             cls = [sys.executable, os.path.join(ROOT, 'scripts',
                                                 'classify_tamil.py'),
                    '--tokenizer', name, '--checkpoint', checkpoint,
                    '--seeds', args.cls_seeds, '--epochs', str(args.cls_epochs),
                    '--batch', str(args.cls_batch), '--lr', str(args.cls_lr),
-                   '--max-len', str(args.cls_max_len)]
+                   '--max-len', str(args.cls_max_len), '--out', out]
             start = time.time()
             run(cls)
             print(f'  {name} classification took {time.time() - start:.0f}s',

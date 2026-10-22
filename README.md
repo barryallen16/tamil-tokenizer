@@ -6,7 +6,7 @@ Designed for training and using custom tokenizers on Tamil corpora, with a fast 
 ## Features
 
 - **Tamil-aware base vocabulary** — 1,135 tokens with no training: 256 byte tokens, 12 independent vowels, 23 standalone consonants, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 4 special characters (`ஃ ஂ ௐ ௗ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 528 further conjunct stems, 10 Tamil digits and 11 extra characters.
-  The conjunct stems are what actually moved compression — Tamil joins consonants constantly (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`) and each one cost 3-4 tokens before
+  The conjunct stems are what actually moved compression: Tamil joins consonants constantly (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`), and each one used to cost 3-4 tokens.
 - **Optimized BPE training** — Parallel corpus processing via [rayon](https://docs.rs/rayon), packed pair storage, and a priority queue for fast merge selection
 - **Fast encoding** — a packed merge table with a per-pair rule cache, so a pair is looked up once per chunk rather than once per merge
 - **Parallel batch encoding** — `encode_batch` / `encode_ordinary_batch` split a document set across all cores
@@ -219,10 +219,6 @@ python scripts/verify_hf_export.py ./output/tamil_64k.json ./output/hf64k
 
 The third argument to `export_hf` sets `model_max_length`, which is the cap `transformers` applies when you pass `truncation=True`.
 It is unlimited by default, so a published tokenizer does not cut a caller's input.
-
-ID agreement between the Rust encoder and the export is 71.8% on wiki held-out and 73.0% on IndicCorp held-out.
-Every learned merge survives the export.
-The gap is in the encoder, and `Known limits` below has the detail.
 
 ## Library Usage (Rust)
 
@@ -551,12 +547,9 @@ More coverage was not what it lacked.
 Ours is the other end of the range: the token-budget row ran out of corpus at 18.8M tokens, so it had seen all of it, and the first 250 MB reproduces it within 0.0006 bits/byte.
 
 The comparison against mBERT is the clean one on model and vocabulary size: 119,547 tokens against 122,723, and 56.8M parameters against 58.0M.
-The token budget itself was not clean, because it gave mBERT 129 MB against all 309 MB, and that is exactly what the byte-matched control removes.
-With the text matched, ours is still 36.8% and 44.9% ahead, so the gap is segmentation and not coverage.
 
 The comparison against `indictok-256k` needs its caveat: its 256,000-token vocabulary makes its embedding table 109.1M parameters against our 58.0M, so part of what it loses is vocabulary size and not tokenization.
 Ours wins it anyway, with half the parameters, which is the opposite of what the size difference would predict.
-Our 20M-token budget was more than the corpus could fill: the row stopped at 18.8M tokens because it ran out, so ours saw the whole training text.
 
 What this does not show: the byte-matched control is one seed per row, though its margins are within 0.1 points of the three-seed range above.
 And a 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute bits-per-byte numbers are high.
@@ -668,7 +661,7 @@ The exact ID range where they start depends on the corpus, because the trainer m
 
 ### The published models
 
-The Hub repo publishes two models, both retrained as **v4** — with a dummy prefix on every training line, which closes the line-initial word split and is worth 0.5-1.3% depending on merge budget:
+The [Hub repo](https://huggingface.co/barryallen16/tamil-tokenizer-wiki) publishes two models, both retrained as **v4**, with a dummy prefix on every training line, which closes the line-initial word split and is worth 0.5-1.3% depending on merge budget:
 
 | file | merges | vocab | wiki B/tok | IndicCorp B/tok |
 |---|---:|---:|---:|---:|
@@ -758,7 +751,7 @@ The two engines read one model and apply the same merges, so there is nothing le
 
 That took a change to how the encoder segments.
 It used to seed a chunk with a greedy longest match over the base clusters, which Hugging Face's `BPE` model cannot express, since that model has no seed symbols and starts from characters.
-The exporter bridges the difference with 819 promotion merges that rebuild the base clusters from characters, and the encoder now starts from characters too.
+The exporter bridges the difference with its 819 promotion merges, and the encoder now starts from characters too.
 The cost is about 1.7% more tokens on Tamil, because the promotion rules and a greedy longest match do not always draw the cluster boundaries in the same place.
 The published artifact already behaved this way; the Rust encoder now agrees with it.
 
@@ -781,16 +774,3 @@ A tokenizer that corrupts text is worse than no tokenizer.
 | `serde` / `serde_json` | Vocab serialization |
 | `rustc_hash` | Fast hash maps (FxHashMap) |
 | `ahash` | Hash maps for trainer internals |
-
-## Hugging Face Integration
-
-The trained tokenizer is published at [barryallen16/tamil-tokenizer-wiki](https://huggingface.co/barryallen16/tamil-tokenizer-wiki) along with the corpora used to train it.
-The repository root holds the 120K model in Hugging Face format, so `AutoTokenizer.from_pretrained` loads it without a subfolder argument.
-The bare `tamil_tokenizer_wiki.json` file is this repo's `{vocab, merges, metadata}` format and loads through the Rust encoder; run `export_hf` on it to get a `tokenizer.json` Python can load.
-
-### Usage with the Rust CLI
-
-```bash
-# Encode text with the published tokenizer
-cargo run --release --bin encode -- ./output/tamil_tokenizer_wiki.json "வணக்கம்!"
-```

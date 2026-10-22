@@ -2,16 +2,16 @@
 
 How the code is organized, how encoding works, and the scripts that produce the measurements.
 
-## Project Structure
+## Project structure
 
 ```
 .
-├── lib.rs                  # Library root — re-exports public types
-├── vocab.rs                # TamilTokenizer — base vocabulary + byte mappings
+├── lib.rs                  # Library root - re-exports public types
+├── vocab.rs                # TamilTokenizer - base vocabulary + byte mappings
 ├── model.rs                 # The canonical model both engines read
-├── pretokenizer.rs         # TamilPretokenizer — regex-based text splitting
-├── trainer.rs              # OptimizedBPETrainer — parallel BPE training
-├── encoder.rs              # FastBPEEncoder — encode/decode over the canonical model
+├── pretokenizer.rs         # TamilPretokenizer - regex-based text splitting
+├── trainer.rs              # OptimizedBPETrainer - parallel BPE training
+├── encoder.rs              # FastBPEEncoder - encode/decode over the canonical model
 ├── train.rs                # CLI: train a tokenizer from a corpus file
 ├── encode.rs               # CLI: encode text to token IDs
 ├── decode.rs               # CLI: decode token IDs back to text
@@ -72,10 +72,12 @@ Each one re-derives its result rather than trusting a stored value:
 | `compare_classify.py` | Accuracy, macro F1 and the paired bootstrap interval, for the token budget and the byte-matched control |
 
 `cargo run --release --bin vocabcount` prints the base-vocabulary breakdown and asserts the buckets sum to the real vocab size.
-That breakdown is maintained by hand and had drifted from the builder in `vocab.rs` — it summed to 1,136 against an actual 1,135, which is where a stale "607 tokens" figure came from.
+That breakdown is maintained by hand and had drifted from the builder in `vocab.rs`.
+It summed to 1,136 against an actual 1,135, which is where a stale "607 tokens" figure came from.
 
-A caveat `colab_bpb.py` enforces on itself: a scoring LM's **own** tokenizer must never appear in the comparison table.
-It was trained on its own segmentation, so it wins on that alone — Qwen2.5 scores 0.77 bits/byte against our 1.15 in the same run, which says nothing about Tamil tokenization.
+A caveat `colab_bpb.py` enforces on itself: a scoring LM's own tokenizer must never appear in the comparison table.
+It was trained on its own segmentation, so it wins on that alone.
+Qwen2.5 scores 0.77 bits/byte against our 1.15 in the same run, which says nothing about Tamil tokenization.
 
 ## Architecture
 
@@ -107,20 +109,23 @@ Text Input
 └──────────────────┘
 ```
 
-The BPE trainer uses a **max-heap** to efficiently select the most frequent token pair at each merge step, with packed `u64` pair keys for cache-friendly storage and `rayon` parallelism during corpus loading.
+The BPE trainer uses a max-heap to select the most frequent token pair at each merge step.
+It stores packed `u64` pair keys for cache-friendly access and loads the corpus in parallel with `rayon`.
 
 ## How encoding works
 
-The trainer learns merges over raw text, so Tamil clusters and merged tokens are stored as raw Tamil strings. `FastBPEEncoder` encodes each pretokenized chunk in three steps.
+The trainer learns merges over raw text, so Tamil clusters and merged tokens are stored as raw Tamil strings.
+`FastBPEEncoder` encodes each pretokenized chunk in three steps.
 First it seeds the chunk with one symbol per character, because Hugging Face's `BPE` model has no seed symbols and starts from characters.
 Then it applies the merges: the lowest-ranked adjacent pair first, and every occurrence of that pair in one pass.
-Then one token ID per symbol, where a character the vocab does not hold falls back to one token per UTF-8 byte, which keeps encoding lossless for any input.
+Then it emits one token ID per symbol, where a character the vocab does not hold falls back to one token per UTF-8 byte, which keeps encoding lossless for any input.
 
 The base clusters come back through the promotion merges.
-There are 819 of them, they rank ahead of the learned merges, and they rebuild each cluster from its characters. `model.rs` builds that list, and both the encoder and the exporter read it, so the two engines segment a chunk the same way.
+There are 819 of them, they rank ahead of the learned merges, and they rebuild each cluster from its characters.
+`model.rs` builds that list, and both the encoder and the exporter read it, so the two engines segment a chunk the same way.
 
 Byte tokens are spelled `<0xNN>`, the way Hugging Face spells them, and a token that is not a byte token is decoded as literal text.
-The vocab mixes raw-text tokens (Tamil clusters and merges, trained on raw text) with byte tokens, and a token like `café` is the word and not three bytes.
+The vocab mixes raw-text tokens (Tamil clusters and merges, trained on raw text) with byte tokens, so a token like `café` is the word and not three bytes.
 
 Special tokens keep the IDs stored in the file: a trained vocab already contains them, and the encoder reuses those IDs instead of remapping them.
 The exact ID range where they start depends on the corpus, because the trainer mints IDs for clusters it discovers while reading.

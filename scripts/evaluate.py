@@ -6,7 +6,7 @@ Usage: python scripts/evaluate.py [tokenizer.json]
 import json, os, sys, subprocess
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OURS_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
+MODEL_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
 RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode" + (".exe" if os.name == "nt" else ""))
 if not os.path.exists(RUST_BIN):
     sys.exit(f"Missing {RUST_BIN}\nRun: cargo build --release")
@@ -51,8 +51,8 @@ CODE = [
 ]
 
 
-def encode_ours(text):
-    r = subprocess.run([RUST_BIN, OURS_JSON, text], capture_output=True, cwd=BASE)
+def encode_model(text):
+    r = subprocess.run([RUST_BIN, MODEL_JSON, text], capture_output=True, cwd=BASE)
     output = r.stdout.decode("utf-8").strip()
     return output.split() if output else []
 
@@ -60,7 +60,7 @@ def encode_ours(text):
 def compute_metrics(texts, name):
     total_bytes = total_tokens = total_words = 0
     for text in texts:
-        tokens = encode_ours(text)
+        tokens = encode_model(text)
         total_bytes += len(text.encode("utf-8"))
         total_tokens += len(tokens)
         total_words += len(text.split())
@@ -82,7 +82,7 @@ def main():
     print("=" * 70)
 
     for lang, corpus in [("Tamil", TAMIL), ("English", ENGLISH), ("Code", CODE)]:
-        m = compute_metrics(corpus, f"Ours ({lang})")
+        m = compute_metrics(corpus, f"tamil-tokenizer ({lang})")
         results[lang] = m
         print(f"\n  [{lang}]")
         print(f"    Total bytes:      {m['total_bytes']:>8}")

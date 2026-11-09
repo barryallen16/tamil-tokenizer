@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tamil Tokenizer Playground | tiktokenizer for Tamil</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <span class="logo-icon">த</span>
+          <span class="logo-title">Tamil Tokenizer <span class="badge">Playground</span></span>
+        </div>
+        <span class="trust-badge">10.2% better compression than IndicTok • 46.7 MB/s</span>
+      </div>
+      <div class="header-right">
+        <button id="add-panel-btn" class="btn btn-secondary btn-sm" title="Add comparison panel">+ Add Model</button>
+        <button id="theme-toggle" class="btn btn-ghost btn-sm" title="Toggle color theme">🌓</button>
+        <a href="https://github.com/barryallen16/tamil-tokenizer" target="_blank" rel="noreferrer" class="btn btn-ghost btn-sm">GitHub ↗</a>
+      </div>
+    </header>
+
+    <!-- Hero / Clarity Header -->
+    <section class="hero-section">
+      <h1 class="hero-title">Compare Tamil Tokenizers in Real Time</h1>
+      <p class="hero-subtitle">
+        See how our 122K vocabulary with native Tamil conjunct stems cuts token count by up to 60% compared to OpenAI, Llama 3, and Gemma.
+      </p>
+
+      <!-- Preset Pills -->
+      <div class="preset-container">
+        <span class="preset-label">Presets:</span>
+        <div class="preset-chips">
+          <button class="chip active" data-preset="greeting">👋 Greeting</button>
+          <button class="chip" data-preset="kural">📜 Thirukkural</button>
+          <button class="chip" data-preset="tech">⚡ AI & Technology</button>
+          <button class="chip" data-preset="conjuncts">🧩 Grantha & Conjuncts</button>
+          <button class="chip" data-preset="code">💻 Code + Tamil</button>
+          <button class="chip" data-preset="tanglish">🌐 Tanglish / Mixed</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Master Input Area -->
+    <section class="input-section">
+      <div class="input-header">
+        <label for="master-input" class="input-label">Text to Tokenize</label>
+        <div class="input-meta">
+          <span id="char-counter">0 chars</span>
+          <span class="separator">•</span>
+          <span id="byte-counter">0 bytes</span>
+          <span class="separator">•</span>
+          <span id="word-counter">0 words</span>
+          <button id="clear-input-btn" class="btn-link" title="Clear text">Clear</button>
+        </div>
+      </div>
+      <div class="input-wrapper">
+        <textarea id="master-input" rows="3" placeholder="Type or paste Tamil, English, or mixed text here..."></textarea>
+      </div>
+    </section>
+
+    <!-- Panels Grid -->
+    <main class="panels-grid" id="panels-container">
+      <!-- Comparison panels will be injected dynamically by app.js -->
+    </main>
+
+    <!-- Hover Inspection Tooltip Popover -->
+    <div id="token-popover" class="token-popover" style="display: none;">
+      <div class="popover-row popover-header">
+        <span class="popover-token-index" id="pop-index">#0</span>
+        <span class="popover-token-id" id="pop-id">ID: 0</span>
+      </div>
+      <div class="popover-row">
+        <span class="popover-label">Text:</span>
+        <span class="popover-value" id="pop-text">""</span>
+      </div>
+      <div class="popover-row">
+        <span class="popover-label">Hex:</span>
+        <span class="popover-value code-font" id="pop-hex">0x00</span>
+      </div>
+      <div class="popover-row">
+        <span class="popover-label">Bytes:</span>
+        <span class="popover-value" id="pop-bytes">0</span>
+      </div>
+      <div class="popover-row">
+        <span class="popover-label">Span:</span>
+        <span class="popover-value" id="pop-span">[0, 0]</span>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>
+        Built with the <a href="https://huggingface.co/barryallen16/tamil-tokenizer-wiki" target="_blank">Tamil Tokenizer</a> library.
+        Zero tracking • Runs 100% locally.
+      </p>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

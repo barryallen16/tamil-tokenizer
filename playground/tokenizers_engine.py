@@ -40,22 +40,31 @@ AVAILABLE_MODELS = [
         "description": "100K vocab BPE used in GPT-4 and GPT-3.5-turbo."
     },
     {
-        "id": "gemma-2",
-        "name": "Google Gemma 2 (256K)",
+        "id": "gemma-4",
+        "name": "Google Gemma 4 (262K)",
         "category": "Open LLMs",
-        "hf_name": "google/gemma-2-2b",
+        "hf_name": "google/gemma-4-E2B-it",
         "subfolder": None,
         "type": "hf",
-        "description": "256K SentencePiece BPE tokenizer used in Gemma 2."
+        "description": "Google 262K open model tokenizer released in 2026."
     },
     {
-        "id": "llama-3",
-        "name": "Meta Llama 3 (128K)",
+        "id": "qwen-3.8",
+        "name": "Alibaba Qwen 3.8 (248K)",
         "category": "Open LLMs",
-        "hf_name": "unsloth/llama-3-8b",
+        "hf_name": "Qwen/Qwen3.8-27B",
         "subfolder": None,
         "type": "hf",
-        "description": "128K byte-level BPE tokenizer used in Llama 3, 3.1, and 3.2."
+        "description": "Alibaba 248K multilingual foundation model tokenizer released in 2026."
+    },
+    {
+        "id": "llama-3.3",
+        "name": "Meta Llama 3.3 (128K)",
+        "category": "Open LLMs",
+        "hf_name": "unsloth/Llama-3.3-70B-Instruct",
+        "subfolder": None,
+        "type": "hf",
+        "description": "Meta 128K byte-level BPE tokenizer for Llama 3.3."
     },
     {
         "id": "indicbert",
@@ -75,15 +84,7 @@ AVAILABLE_MODELS = [
         "type": "hf",
         "description": "65K Indian language foundation model tokenizer from Sarvam AI."
     },
-    {
-        "id": "qwen-2.5",
-        "name": "Alibaba Qwen 2.5 (152K)",
-        "category": "Open LLMs",
-        "hf_name": "Qwen/Qwen2.5-7B",
-        "subfolder": None,
-        "type": "hf",
-        "description": "152K multilingual byte-level BPE tokenizer used in Qwen 2.5."
-    },
+
     {
         "id": "mbert",
         "name": "mBERT (119K)",

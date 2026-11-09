@@ -27,7 +27,7 @@ uv run --with "transformers,tokenizers,tiktoken" python playground/server.py
 ```
 
 Then open `http://127.0.0.1:7860` in your browser.
-Compare Tamil Tokenizer (120K and 30K) against OpenAI (o200k, cl100k), Google Gemma 2, Meta Llama 3, IndicBERT, and Sarvam in real time.
+Compare Tamil Tokenizer (120K and 30K) against OpenAI (o200k, cl100k), Google Gemma 4, Alibaba Qwen 3.8, Meta Llama 3.3, IndicBERT, and Sarvam in real time.
 
 ### Python
 

@@ -18,6 +18,17 @@ On the same 20M-token pretraining budget it is 10.1-10.2% better than `indictok-
 
 ## Quickstart
 
+### Playground
+
+Launch the interactive tokenizer comparison playground modeled after `tiktokenizer`:
+
+```bash
+uv run --with "transformers,tokenizers,tiktoken" python playground/server.py
+```
+
+Then open `http://127.0.0.1:7860` in your browser.
+Compare Tamil Tokenizer (120K and 30K) against OpenAI (o200k, cl100k), Google Gemma 2, Meta Llama 3, IndicBERT, and Sarvam in real time.
+
 ### Python
 
 ```python

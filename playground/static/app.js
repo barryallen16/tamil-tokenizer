@@ -80,7 +80,8 @@
         { id: 'openai-cl100k', name: 'OpenAI GPT-4 / 3.5 (cl100k_base)', category: 'OpenAI' },
         { id: 'gemma-4', name: 'Google Gemma 4 (262K)', category: 'Open LLMs' },
         { id: 'qwen-3.8', name: 'Alibaba Qwen 3.8 (248K)', category: 'Open LLMs' },
-        { id: 'llama-3.3', name: 'Meta Llama 3.3 (128K)', category: 'Open LLMs' },
+        { id: 'llama-4', name: 'Meta Llama 4 (201K)', category: 'Open LLMs' },
+        { id: 'muse-glimmer', name: 'Meta Muse Glimmer (202K)', category: 'Open LLMs' },
         { id: 'indicbert', name: 'AI4Bharat IndicBERTv2 (256K)', category: 'Indic LLMs' },
         { id: 'sarvam-2b', name: 'Sarvam AI (65K)', category: 'Indic LLMs' },
         { id: 'mbert', name: 'mBERT (119K)', category: 'Baselines' }

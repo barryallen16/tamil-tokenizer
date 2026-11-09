@@ -58,13 +58,22 @@ AVAILABLE_MODELS = [
         "description": "Alibaba 248K multilingual foundation model tokenizer released in 2026."
     },
     {
-        "id": "llama-3.3",
-        "name": "Meta Llama 3.3 (128K)",
+        "id": "llama-4",
+        "name": "Meta Llama 4 (201K)",
         "category": "Open LLMs",
-        "hf_name": "unsloth/Llama-3.3-70B-Instruct",
+        "hf_name": "unsloth/Llama-4-Scout-17B-16E-Instruct",
         "subfolder": None,
         "type": "hf",
-        "description": "Meta 128K byte-level BPE tokenizer for Llama 3.3."
+        "description": "Meta 201K vocabulary BPE tokenizer used in Llama 4 Scout and Maverick."
+    },
+    {
+        "id": "muse-glimmer",
+        "name": "Meta Muse Glimmer (202K)",
+        "category": "Open LLMs",
+        "hf_name": "meta-models/Muse-Glimmer-30B",
+        "subfolder": None,
+        "type": "hf",
+        "description": "Meta's autumn 2026 foundation model 202K vocabulary BPE tokenizer."
     },
     {
         "id": "indicbert",

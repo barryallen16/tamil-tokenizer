@@ -148,19 +148,8 @@ impl TamilTokenizer {
         }
 
         // Conjunct clusters: consonant + virama + consonant.
-        //
-        // Tamil orthography joins consonants this way constantly (க்ஷ, ஸ்ரீ,
-        // க்ட, ண்ட) and the base set had no way to express any of it, so every
-        // conjunct cost 3-4 tokens where 1 would do. Adding the bare stem is
-        // what matters: extending this to a trailing vowel sign as well
-        // (23 x 23 x 12 = 6,348 more tokens) measurably *hurts*, because the
-        // base vocab reaches ~7,000 and the fixed 30K merge budget no longer
-        // covers the corpus. Measured on the 30K wiki model, held-out:
-        //
-        //   base vocab   wiki      IndicCorp  Grantha-heavy
-        //   607 (before) 10.183    10.280     9.885
-        //   1,793 (this) 10.156    10.071     9.759
-        //   ~7,000       10.855    10.936     10.562
+        // Adding the 23 x 23 bare stems keeps orthographic consonant clusters
+        // representable without expanding the base vocabulary to full CV syllables.
         let conjunct_stems: Vec<char> = consonant_codepoints
             .iter()
             .filter_map(|&cp| char::from_u32(cp))
@@ -288,42 +277,5 @@ impl TamilTokenizer {
 
     pub fn vocab_size(&self) -> usize {
         self.vocab.len()
-    }
-
-    pub fn print_stats(&self) {
-        // These buckets must sum to vocab_size(). `க்ஷ` is both a ligature and a
-        // conjunct stem, so it is pushed once and counted once: 529 is how many
-        // tokens *look* like conjunct stems, but one of them is already in the
-        // ligature row. The old numbers here summed to 1,136 against an actual
-        // 1,135, which is how the README inherited a wrong total.
-        println!("Total vocabulary size: {}", self.vocab.len());
-        println!("Byte-level tokens (all 256 bytes, GPT-2 style): 256");
-        println!("Independent vowels: 12");
-        println!("Standalone consonants: 23");
-        println!("Consonant+vowel clusters (23x12): 276");
-        println!("Special characters: 4");
-        println!("Compound ligatures: 15");
-        println!("Conjunct stems (added after ligature dedup): 528");
-        println!("Tamil digits: 10");
-        println!("Extra Tamil characters: 11");
-        println!(
-            "Sum of the above: {}",
-            256 + 12 + 23 + 276 + 4 + 15 + 528 + 10 + 11
-        );
-
-        // Show mapping examples
-        println!("\n=== Character Mapping Examples ===");
-        println!(
-            "Newline (\\n) → U+{:04X} ({})",
-            self.byte_encoder[&b'\n'] as u32, self.byte_encoder[&b'\n']
-        );
-        println!(
-            "Space ( ) → U+{:04X} ({})",
-            self.byte_encoder[&b' '] as u32, self.byte_encoder[&b' ']
-        );
-        println!(
-            "Tab (\\t) → U+{:04X} ({})",
-            self.byte_encoder[&b'\t'] as u32, self.byte_encoder[&b'\t']
-        );
     }
 }

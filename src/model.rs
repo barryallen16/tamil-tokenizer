@@ -1,18 +1,9 @@
-//! One vocabulary and one merge list, shared by the Rust encoder and the
-//! Hugging Face export.
+//! Shared vocabulary and merge rules for the Rust encoder and Hugging Face export.
 //!
-//! The two engines used to disagree on the token IDs for a fifth of all lines.
-//! The reason was that each side built its own model: the export added byte
-//! tokens and promotion merges that the encoder never saw, and the encoder
-//! seeded a chunk with the longest base cluster while Hugging Face seeds with
-//! single characters. Two models produce two tokenizations.
-//!
-//! This module builds the model both sides use. Hugging Face's `BPE` model
-//! starts from characters and applies merges in rank order, and it has no way
-//! to express a seed symbol, so the seed set is fixed: characters. The
-//! promotion merges rebuild the base clusters from those characters, and they
-//! rank ahead of the learned merges so a cluster exists before any merge that
-//! consumes it.
+//! Hugging Face's BPE implementation starts from single characters and applies
+//! merges in rank order without native seed symbols. This module reconstructs
+//! multi-character base clusters from individual characters via promotion merges
+//! placed ahead of learned merges, ensuring byte-exact parity across engines.
 
 use crate::vocab::TamilTokenizer;
 use rustc_hash::FxHashMap;
@@ -143,7 +134,7 @@ fn build_promotions(
             None
         }
 
-        let Some(rules) = split(token, &vocab, &reachable) else {
+        let Some(rules) = split(token, vocab, &reachable) else {
             continue;
         };
         for (a, b) in rules {

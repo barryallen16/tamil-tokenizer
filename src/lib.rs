@@ -1,10 +1,12 @@
 pub mod encoder;
+pub mod export;
 pub mod model;
 pub mod pretokenizer;
 pub mod trainer;
 pub mod vocab;
 
 pub use encoder::FastBPEEncoder;
+pub use export::export_hf;
 pub use model::{canonical_model, CanonicalModel};
 pub use pretokenizer::TamilPretokenizer;
 pub use trainer::OptimizedBPETrainer;

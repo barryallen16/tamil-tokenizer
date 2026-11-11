@@ -64,12 +64,4 @@ impl TamilPretokenizer {
         writer.flush()?;
         Ok(())
     }
-
-    pub fn print_example(&self, text: &str) {
-        let chunks = self.pretokenize(text);
-        println!("Pretokenized {} chunks:", chunks.len());
-        for (i, chunk) in chunks.iter().enumerate() {
-            println!("  {}: {}", i, chunk);
-        }
-    }
 }

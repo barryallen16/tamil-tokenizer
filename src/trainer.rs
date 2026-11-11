@@ -6,10 +6,6 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::{Duration, Instant};
 
-// ============================================================================
-// TYPE ALIAS AND HELPER FUNCTIONS FOR PACKED PAIR STORAGE
-// ============================================================================
-
 type TokId = u32;
 
 #[inline]
@@ -21,10 +17,6 @@ fn pack_pair(a: TokId, b: TokId) -> u64 {
 fn unpack_pair(p: u64) -> (TokId, TokId) {
     ((p >> 32) as TokId, (p & 0xFFFF_FFFF) as TokId)
 }
-
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HeapEntry {
@@ -68,10 +60,6 @@ struct TokenizerMetadata {
     unique_words_processed: usize,
 }
 
-// ============================================================================
-// MAIN TRAINER STRUCT
-// ============================================================================
-
 #[allow(dead_code)]
 pub struct OptimizedBPETrainer {
     pretokenizer: TamilPretokenizer,
@@ -103,11 +91,8 @@ pub struct OptimizedBPETrainer {
     /// that are actually common, which is what keeps a large corpus from
     /// producing a tail of one-off merges.
     min_frequency: u32,
+    pub verbose: bool,
 }
-
-// ============================================================================
-// IMPLEMENTATION
-// ============================================================================
 
 impl OptimizedBPETrainer {
     pub fn new(initial_vocab: HashMap<String, u32>) -> Self {
@@ -141,7 +126,12 @@ impl OptimizedBPETrainer {
             tamil_clusters,
             total_time: Duration::ZERO,
             min_frequency: 1,
+            verbose: false,
         }
+    }
+
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.verbose = verbose;
     }
 
     /// Set the minimum pair frequency a merge must reach. Defaults to 1, which
@@ -152,7 +142,9 @@ impl OptimizedBPETrainer {
     }
 
     pub fn initialize_from_corpus(&mut self, corpus_path: &str) -> std::io::Result<()> {
-        println!("Reading and tokenizing corpus in parallel...");
+        if self.verbose {
+            println!("Reading and tokenizing corpus in parallel...");
+        }
         let start_time = Instant::now();
 
         use std::fs::File;
@@ -165,7 +157,9 @@ impl OptimizedBPETrainer {
         // silently train on a truncated corpus.
         let all_lines: Vec<String> = reader.lines().collect::<std::io::Result<_>>()?;
 
-        println!("Processing {} lines in parallel...", all_lines.len());
+        if self.verbose {
+            println!("Processing {} lines in parallel...", all_lines.len());
+        }
 
         let chunk_size = all_lines.len() / rayon::current_num_threads().max(1);
         let chunk_size = chunk_size.max(50000);
@@ -194,16 +188,15 @@ impl OptimizedBPETrainer {
             }
         }
 
-        println!(
-            "Building pair statistics for {} unique words...",
-            word_freqs_temp.len()
-        );
+        if self.verbose {
+            println!(
+                "Building pair statistics for {} unique words...",
+                word_freqs_temp.len()
+            );
+        }
 
-        // Sort before assigning IDs. Iterating the hash map directly would
-        // mint `next_token_id` in hash order, and since the merge tie-break
-        // compares packed ids, two runs on the same corpus would produce
-        // different models. Everything downstream already sorts for exactly
-        // this reason; this is the one place that did not.
+        // Sort lexicographically before assigning IDs to maintain deterministic
+        // tie-breaking across runs on the same corpus.
         let mut unique_words: Vec<(Vec<String>, u32)> = word_freqs_temp.into_iter().collect();
         unique_words.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -222,12 +215,14 @@ impl OptimizedBPETrainer {
         self.rebuild_heap();
 
         let elapsed = start_time.elapsed();
-        println!(
-            "Cached {} unique words from {} lines in {:.2}s\n",
-            self.words.len(),
-            all_lines.len(),
-            elapsed.as_secs_f64()
-        );
+        if self.verbose {
+            println!(
+                "Cached {} unique words from {} lines in {:.2}s\n",
+                self.words.len(),
+                all_lines.len(),
+                elapsed.as_secs_f64()
+            );
+        }
 
         Ok(())
     }
@@ -329,7 +324,9 @@ impl OptimizedBPETrainer {
     }
 
     pub fn train(&mut self, num_merges: usize) {
-        println!("Starting BPE training with {} merges...", num_merges);
+        if self.verbose {
+            println!("Starting BPE training with {} merges...", num_merges);
+        }
         let train_start = Instant::now();
 
         for merge_iteration in 0..num_merges {
@@ -340,7 +337,7 @@ impl OptimizedBPETrainer {
             // A stale entry must be re-pushed with its corrected count, not
             // dropped. Frequencies only ever fall for pairs that do not touch
             // the newly merged token, and `new_pairs_to_add` re-pushes only
-            // pairs that DO touch it — so a discarded entry is a pair the
+            // pairs that DO touch it - so a discarded entry is a pair the
             // trainer can never see again. Since the heap pops the highest
             // count first, the entries that go stale at the top are exactly the
             // frequent pairs, and dropping them makes the trainer spend merges
@@ -445,7 +442,7 @@ impl OptimizedBPETrainer {
                 }
 
                 let merge_elapsed = merge_start.elapsed();
-                if merge_iteration % 100 == 0 {
+                if self.verbose && merge_iteration % 100 == 0 {
                     println!(
                         "  Iter {}: '{}' + '{}' → '{}' (freq={}) | {:.3}s",
                         merge_iteration,
@@ -457,17 +454,21 @@ impl OptimizedBPETrainer {
                     );
                 }
             } else {
-                println!("No more pairs to merge at iteration {}", merge_iteration);
+                if self.verbose {
+                    println!("No more pairs to merge at iteration {}", merge_iteration);
+                }
                 break;
             }
         }
 
         self.total_time = train_start.elapsed();
-        println!(
-            "\nTraining complete in {:.2}s ({:.2}m)",
-            self.total_time.as_secs_f64(),
-            self.total_time.as_secs_f64() / 60.0
-        );
+        if self.verbose {
+            println!(
+                "\nTraining complete in {:.2}s ({:.2}m)",
+                self.total_time.as_secs_f64(),
+                self.total_time.as_secs_f64() / 60.0
+            );
+        }
     }
 
     pub fn get_final_vocab(&self) -> HashMap<String, u32> {
@@ -557,75 +558,25 @@ impl OptimizedBPETrainer {
         let mut file = File::create(path)?;
         file.write_all(json_string.as_bytes())?;
 
-        println!(
-            "Saved tokenizer with special + reserved tokens to: {}",
-            path
-        );
-        println!("   Base vocab: 0-{}", base_vocab_size - 1);
-        println!(
-            "   Named special tokens: {}-{}",
-            base_vocab_size,
-            named_tokens_end - 1
-        );
-        println!(
-            "   Reserved tokens: {}-{}",
-            named_tokens_end,
-            current_id - 1
-        );
-        println!("   Total vocab size: {}", current_id);
-
-        Ok(())
-    }
-
-    pub fn save_vocab_json(&self, path: &str) -> std::io::Result<()> {
-        use std::fs::File;
-
-        let mut vocab_map = HashMap::new();
-        for (idx, token) in self.id_to_token.iter().enumerate() {
-            vocab_map.insert(token.clone(), idx as u32);
+        if self.verbose {
+            println!(
+                "Saved tokenizer with special + reserved tokens to: {}",
+                path
+            );
+            println!("   Base vocab: 0-{}", base_vocab_size - 1);
+            println!(
+                "   Named special tokens: {}-{}",
+                base_vocab_size,
+                named_tokens_end - 1
+            );
+            println!(
+                "   Reserved tokens: {}-{}",
+                named_tokens_end,
+                current_id - 1
+            );
+            println!("   Total vocab size: {}", current_id);
         }
 
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, &vocab_map)?;
-        println!("Saved vocabulary to {}", path);
         Ok(())
-    }
-
-    pub fn save_merges_json(&self, path: &str) -> std::io::Result<()> {
-        use std::fs::File;
-
-        #[derive(Serialize)]
-        struct MergesData {
-            merges: Vec<Vec<String>>,
-            count: usize,
-        }
-
-        let merges_list: Vec<Vec<String>> = self
-            .merges
-            .iter()
-            .map(|(t1, t2)| vec![t1.clone(), t2.clone()])
-            .collect();
-
-        let merges_data = MergesData {
-            merges: merges_list,
-            count: self.merges.len(),
-        };
-
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, &merges_data)?;
-        println!("Saved merges to {}", path);
-        Ok(())
-    }
-
-    pub fn print_stats(&self) {
-        println!("\n=== Training Statistics ===");
-        println!("Total vocabulary size: {}", self.id_to_token.len());
-        println!("Number of merge rules: {}", self.merges.len());
-        println!("Unique words: {}", self.words.len());
-        println!(
-            "Total training time: {:.2}s ({:.2}m)",
-            self.total_time.as_secs_f64(),
-            self.total_time.as_secs_f64() / 60.0
-        );
     }
 }

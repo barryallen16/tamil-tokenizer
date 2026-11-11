@@ -13,12 +13,11 @@ mod tests {
         TamilTokenizer::new().vocab.into_iter().collect()
     }
 
-    // === Canonical model (6 tests) ===
+    // Canonical model
 
-    /// The encoder has to keep the IDs of the trained vocab, or every model
-    /// trained with it would point at the wrong embedding rows.
+    /// Preserve trained vocabulary IDs without remapping.
     #[test]
-    fn test_encoder_keeps_the_trained_ids() {
+    fn test_encoder_preserves_vocab_ids() {
         let tok = TamilTokenizer::new();
         let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
         let enc = FastBPEEncoder::new(vocab.clone()).expect("encoder");
@@ -35,9 +34,9 @@ mod tests {
         }
     }
 
-    /// Every byte has a token, spelled the way Hugging Face spells it.
+    /// Verify byte tokens follow the Hugging Face <0xNN> naming convention.
     #[test]
-    fn test_byte_fallback_tokens_are_named_the_hf_way() {
+    fn test_hf_byte_fallback_token_format() {
         let tok = TamilTokenizer::new();
         let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
         let model = tamil_tokenizer::canonical_model(&vocab, &[]);
@@ -52,10 +51,9 @@ mod tests {
         );
     }
 
-    /// A character the vocab does not hold becomes one token per UTF-8 byte,
-    /// and the decoder puts the bytes back together.
+    /// Fallback unknown characters to byte tokens and round-trip successfully.
     #[test]
-    fn test_unknown_characters_become_byte_tokens() {
+    fn test_unknown_chars_fallback_to_bytes() {
         let tok = TamilTokenizer::new();
         let vocab: FxHashMap<String, u32> = tok.vocab.clone().into_iter().collect();
         let enc = FastBPEEncoder::new(vocab).expect("encoder");
@@ -64,38 +62,31 @@ mod tests {
         assert_eq!(enc.decode(&ids), "\u{65e5}");
     }
 
-    /// The merge semantics have to match Hugging Face's: the lowest-ranked
-    /// pair merges, and every occurrence of it merges in the same pass.
-    ///
-    /// With one rule, `a b a b` becomes two tokens. Merging one occurrence at
-    /// a time would leave the second pair alone, because the merged token has
-    /// no rule of its own.
+    /// Merge every occurrence of a candidate pair in a single pass.
     #[test]
-    fn test_every_occurrence_of_a_pair_merges_in_one_pass() {
+    fn test_pair_merge_single_pass() {
         let vocab: FxHashMap<String, u32> = ["a", "b", "ab"]
             .into_iter()
             .enumerate()
             .map(|(i, t)| (t.to_string(), i as u32))
             .collect();
-        let enc =
-            FastBPEEncoder::new_with_merges(vocab, &[("a".to_string(), "b".to_string())])
-                .expect("encoder");
+        let enc = FastBPEEncoder::new_with_merges(vocab, &[("a".to_string(), "b".to_string())])
+            .expect("encoder");
         assert_eq!(enc.encode_ordinary("abab"), vec![2, 2]);
     }
 
-    /// A special token in the text is one token, because Hugging Face extracts
-    /// added tokens before the BPE model runs.
+    /// Special tokens are extracted as atomic tokens before BPE applies.
     #[test]
-    fn test_special_token_in_text_is_one_token() {
+    fn test_special_tokens_atomic() {
         let enc = make_encoder();
         let ids = enc.encode_ordinary("<|endoftext|>");
         assert_eq!(ids.len(), 1);
         assert!(enc.is_special_token(ids[0]));
     }
 
-    /// Text that no byte table handles has to survive a round trip.
+    /// Non-Latin scripts round-trip through byte fallback tokens.
     #[test]
-    fn test_roundtrip_scripts_outside_latin() {
+    fn test_roundtrip_non_latin_scripts() {
         for text in [
             "\u{65e5}\u{672c}\u{8a9e}",
             "\u{1f600}",
@@ -107,7 +98,7 @@ mod tests {
         }
     }
 
-    // === TamilTokenizer (6 tests) ===
+    // TamilTokenizer
 
     #[test]
     fn test_vocab_size_range() {
@@ -123,7 +114,7 @@ mod tests {
     /// (க்ஷ, ஸ்ரீ, க்ட, ண்ட) and the base set previously had to spend 3-4
     /// tokens on each one.
     #[test]
-    fn test_conjunct_stems_are_single_tokens() {
+    fn test_conjunct_stems_atomic() {
         let enc = make_encoder();
         for stem in ["க்ஷ", "ஸ்ர", "க்ட", "ண்ட", "ஜ்ஜ", "ஷ்ட", "ஸ்த", "ஷ்ம", "ஶ்ந"]
         {
@@ -199,7 +190,7 @@ mod tests {
     #[test]
     fn test_save_and_load_vocab() {
         let tok = TamilTokenizer::new();
-        let path = std::env::temp_dir().join("test_vocab.json");
+        let path = std::env::temp_dir().join(format!("test_vocab_{}.json", std::process::id()));
         let path_str = path.to_str().unwrap();
         tok.save_vocab(path_str).expect("save failed");
         let loaded = TamilTokenizer::load_vocab_id_list(path_str).expect("load failed");
@@ -210,7 +201,7 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    // === Pretokenizer (5 tests) ===
+    // Pretokenizer
 
     #[test]
     fn test_pretokenizer_empty() {
@@ -279,7 +270,7 @@ mod tests {
         assert_eq!(rejoined, "<|reserved_0|>");
     }
 
-    // === Encoder (12 tests) ===
+    // FastBPEEncoder
 
     #[test]
     fn test_encoder_empty_string() {
@@ -342,13 +333,13 @@ mod tests {
     #[test]
     fn test_encoder_vocab_size() {
         let enc = make_encoder();
-        assert!(enc.vocab_size() > 200);
+        assert_eq!(enc.vocab_size(), 1511);
     }
 
     #[test]
     fn test_encoder_special_token_count() {
         let enc = make_encoder();
-        assert!(enc.special_token_count() >= 8);
+        assert_eq!(enc.special_token_count(), 8);
     }
 
     #[test]
@@ -374,7 +365,7 @@ mod tests {
         assert_eq!(decoded, text);
     }
 
-    // === Losslessness (byte-level BPE) ===
+    // Byte fallback and losslessness
 
     /// The bug these guard: the vocab stores GPT-2 style byte-mapped chars, but
     /// the encoder used to feed raw text straight to the automaton. Anything the
@@ -421,10 +412,9 @@ mod tests {
         assert_roundtrip("  padded  ");
     }
 
-    /// Tamil clusters are stored as raw text. The encoder used to byte-map input
-    /// before matching, which made every Tamil token unreachable.
+    /// Base Tamil clusters and Grantha ligatures match as single tokens.
     #[test]
-    fn test_tamil_cluster_is_one_token() {
+    fn test_tamil_cluster_atomic() {
         let enc = make_encoder();
         assert_eq!(enc.encode_ordinary("கா").len(), 1);
         assert_eq!(enc.encode_ordinary("ஃ").len(), 1);
@@ -454,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tamil_compresses_beyond_bytes() {
+    fn test_tamil_compression_ratio() {
         let enc = make_encoder();
         let text = "வணக்கம் இது தமிழ்";
         let ratio = text.len() as f64 / enc.encode_ordinary(text).len() as f64;
@@ -512,19 +502,16 @@ mod tests {
         assert_eq!(encoder[&0xC3], '\u{00C3}');
     }
 
-    /// Latin-1 text must not be captured by a single-byte token. Under GPT-2's
-    /// table `Ã` is both the byte token for 0xC3 and a real character, so a
-    /// stand-in test that only looked at the codepoint would match raw text to
-    /// a one-byte token and decode it to a different byte.
+    /// Latin-1 text must round-trip without collision against byte fallback tokens.
     #[test]
-    fn test_latin1_text_is_not_a_byte_token() {
+    fn test_latin1_text_roundtrip() {
         for text in ["Ã©", "Ñ€", "üÿ", "Ð¿Ñ€Ð¸Ð²ÐµÑ‚"] {
             assert_roundtrip(text);
         }
     }
 
     #[test]
-    fn test_merge_rank_beats_longest_match() {
+    fn test_merge_rank_precedence() {
         use tamil_tokenizer::FastBPEEncoder;
         let vocab: FxHashMap<String, u32> = ["a", "b", "c", "ab", "bc"]
             .into_iter()
@@ -553,9 +540,9 @@ mod tests {
         assert_eq!(enc.encode_ordinary("abc"), vec![4]);
     }
 
+    /// Decoded byte count must match input byte count across all inputs.
     #[test]
-    fn test_encode_never_silently_drops_text() {
-        // Total decoded bytes must always equal input bytes, whatever the input.
+    fn test_encode_lossless() {
         let enc = make_encoder();
         for text in ["a", " ", "\n", "😀", "ஃ", "Hello", "வணக்கம்", "x y\nz"] {
             let ids = enc.encode_ordinary(text);
@@ -568,11 +555,9 @@ mod tests {
         }
     }
 
-    /// A vocab with an ID past the end used to index `id_to_token` directly and
-    /// panic with an out-of-bounds index. It must be rejected as bad data
-    /// instead, because a malformed tokenizer file is untrusted input.
+    /// Reject non-dense or malformed vocabularies with an error instead of panicking.
     #[test]
-    fn test_malformed_vocab_is_rejected_not_panicked() {
+    fn test_malformed_vocab_error() {
         let mut sparse: FxHashMap<String, u32> = FxHashMap::default();
         sparse.insert("a".to_string(), 0);
         sparse.insert("b".to_string(), u32::MAX);
@@ -591,7 +576,7 @@ mod tests {
         );
     }
 
-    // === OptimizedBPETrainer ===
+    // OptimizedBPETrainer
 
     const CORPUS: &str = "./data/tamil_corpus.txt";
 
@@ -606,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trainer_learns_the_requested_merges() {
+    fn test_trainer_merge_count() {
         let base_len = TamilTokenizer::new().vocab.len();
         let t = trained(50, 1);
         let merges = t.merges();
@@ -631,16 +616,14 @@ mod tests {
         }
     }
 
-    /// The trainer breaks frequency ties by packed pair key, so the same corpus
-    /// must produce byte-identical merges every run. Reproducible published
-    /// models depend on this.
+    /// Deterministic merge order across multiple training runs on identical corpora.
     #[test]
-    fn test_trainer_is_deterministic() {
+    fn test_trainer_determinism() {
         assert_eq!(trained(60, 1).merges(), trained(60, 1).merges());
     }
 
     #[test]
-    fn test_min_frequency_skips_rare_pairs() {
+    fn test_min_frequency_filtering() {
         let loose = trained(300, 1);
         let strict = trained(300, 5);
         assert!(
@@ -649,11 +632,9 @@ mod tests {
         );
     }
 
-    /// End-to-end: a trained artifact saved and reloaded must encode and decode
-    /// its own corpus byte-exactly. This is the path the CLI and every benchmark
-    /// depend on, and nothing else tested it.
+    /// Trained artifact saved to disk must reload and round-trip corpus byte-for-byte.
     #[test]
-    fn test_trained_artifact_round_trips() {
+    fn test_trained_artifact_roundtrip() {
         let t = trained(200, 1);
         let path = std::env::temp_dir().join("tamil_tokenizer_trainer_test.json");
         let path = path.to_str().unwrap();
@@ -683,7 +664,7 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
-    // === Trainer correctness (2 tests) ===
+    // Trainer correctness against reference oracle
 
     /// Segment a chunk into base symbols exactly as the trainer does:
     /// longest-first over 4/3/2-character clusters, then a single character.
@@ -883,7 +864,7 @@ mod tests {
     /// model depend on the seed ahash picked for that process.
     #[test]
     fn training_is_reproducible() {
-        let path = std::env::temp_dir().join("tamil_tokenizer_repro.txt");
+        let path = std::env::temp_dir().join(format!("tamil_tokenizer_repro_{}.txt", std::process::id()));
         std::fs::write(&path, REPRO_CORPUS).expect("write corpus");
         let path = path.to_str().expect("utf-8 temp path");
 

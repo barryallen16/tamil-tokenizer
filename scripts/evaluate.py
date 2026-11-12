@@ -7,9 +7,11 @@ import json, os, sys, subprocess
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_JSON = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(BASE, "output", "tamil_tokenizer.json")
-RUST_BIN = os.path.join(BASE, "target", "release", "bench_encode" + (".exe" if os.name == "nt" else ""))
+RUST_BIN = os.path.join(BASE, "target", "release", "tamil_tokenizer" + (".exe" if os.name == "nt" else ""))
 if not os.path.exists(RUST_BIN):
     sys.exit(f"Missing {RUST_BIN}\nRun: cargo build --release")
+if not os.path.exists(MODEL_JSON):
+    sys.exit(f"Missing {MODEL_JSON}\nProvide path to a trained tokenizer JSON or train one first.")
 
 TAMIL = [
     "வணக்கம்! இது தமிழ் மொழியில் எழுதப்பட்ட ஒரு சோதனை வாக்கியம். இது மிகவும் நீண்ட வாக்கியம்.",
@@ -52,7 +54,7 @@ CODE = [
 
 
 def encode_model(text):
-    r = subprocess.run([RUST_BIN, MODEL_JSON, text], capture_output=True, cwd=BASE)
+    r = subprocess.run([RUST_BIN, "encode", MODEL_JSON, text], capture_output=True, cwd=BASE)
     output = r.stdout.decode("utf-8").strip()
     return output.split() if output else []
 
@@ -101,6 +103,7 @@ def main():
         print(f"  {lang:<12} {m['bytes_per_token']:>12.2f} {m['tokens_per_word']:>12.2f} {m['total_tokens']:>8}")
 
     out_path = os.path.join(BASE, "output", "evaluation_metrics.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n  Results saved to {out_path}")

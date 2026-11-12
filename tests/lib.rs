@@ -864,7 +864,8 @@ mod tests {
     /// model depend on the seed ahash picked for that process.
     #[test]
     fn training_is_reproducible() {
-        let path = std::env::temp_dir().join(format!("tamil_tokenizer_repro_{}.txt", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("tamil_tokenizer_repro_{}.txt", std::process::id()));
         std::fs::write(&path, REPRO_CORPUS).expect("write corpus");
         let path = path.to_str().expect("utf-8 temp path");
 

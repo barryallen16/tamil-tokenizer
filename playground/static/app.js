@@ -83,7 +83,8 @@
         { id: 'llama-4', name: 'Meta Llama 4 (201K)', category: 'Open LLMs' },
         { id: 'muse-glimmer', name: 'Meta Muse Glimmer (202K)', category: 'Open LLMs' },
         { id: 'indicbert', name: 'AI4Bharat IndicBERTv2 (256K)', category: 'Indic LLMs' },
-        { id: 'sarvam-2b', name: 'Sarvam AI (65K)', category: 'Indic LLMs' },
+        { id: 'sarvam-105b', name: 'Sarvam AI 105B (262K)', category: 'Indic LLMs' },
+        { id: 'sarvam-1', name: 'Sarvam-1 (68K)', category: 'Indic LLMs' },
         { id: 'mbert', name: 'mBERT (119K)', category: 'Baselines' }
       ];
     }

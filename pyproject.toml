@@ -1,0 +1,21 @@
+[project]
+name = "tamil-tokenizer"
+version = "0.1.0"
+description = "High-performance BPE tokenizer for Tamil text"
+readme = "README.md"
+requires-python = ">=3.10, <3.13"
+dependencies = [
+    "tokenizers>=0.19",
+    "transformers>=4.40",
+    "tiktoken>=0.7",
+    "sentencepiece>=0.2",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+training = [
+    "torch>=2.0",
+]
+
+[tool.uv]
+package = false

@@ -1,6 +1,6 @@
+use crate::{TamilPretokenizer, TokenizerResult as Result};
 use serde_json::{json, Map, Value};
 use std::io::Write;
-use crate::{TamilPretokenizer, TokenizerResult as Result};
 
 /// Export a trained tokenizer to Hugging Face format artifacts.
 ///

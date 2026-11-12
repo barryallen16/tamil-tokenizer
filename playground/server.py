@@ -17,23 +17,6 @@ from playground.tokenizers_engine import AVAILABLE_MODELS, tokenize_text
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# In-memory LRU cache: (model_id, text) -> result dict
-_CACHE = {}
-_CACHE_MAX = 512
-
-
-def cached_tokenize(model_id: str, text: str) -> dict:
-    key = (model_id, text)
-    if key in _CACHE:
-        return _CACHE[key]
-    res = tokenize_text(model_id, text)
-    if len(_CACHE) >= _CACHE_MAX:
-        # Evict oldest entry
-        first_key = next(iter(_CACHE))
-        _CACHE.pop(first_key, None)
-    _CACHE[key] = res
-    return res
-
 
 class PlaygroundHandler(SimpleHTTPRequestHandler):
     """HTTP Request handler for tokenizer playground."""
@@ -96,7 +79,7 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
             results = {}
             for mid in targets:
                 try:
-                    results[mid] = cached_tokenize(mid, text)
+                    results[mid] = tokenize_text(mid, text)
                 except Exception as ex:
                     results[mid] = {
                         "error": str(ex),

@@ -85,20 +85,29 @@ AVAILABLE_MODELS = [
         "description": "256K Indic language benchmark model developed by AI4Bharat."
     },
     {
-        "id": "sarvam-2b",
-        "name": "Sarvam AI (65K)",
+        "id": "sarvam-105b",
+        "name": "Sarvam AI 105B (262K)",
         "category": "Indic LLMs",
-        "hf_name": "sarvamai/sarvam-2b-v0.5",
+        "hf_name": "sarvamai/sarvam-105b",
         "subfolder": None,
         "type": "hf",
-        "description": "65K Indian language foundation model tokenizer from Sarvam AI."
+        "description": "262K vocabulary frontier Indic foundation model tokenizer from Sarvam AI."
+    },
+    {
+        "id": "sarvam-1",
+        "name": "Sarvam-1 (68K)",
+        "category": "Indic LLMs",
+        "hf_name": "sarvamai/sarvam-1",
+        "subfolder": None,
+        "type": "hf",
+        "description": "68K Indian language foundation model tokenizer from Sarvam AI."
     },
 
     {
         "id": "mbert",
         "name": "mBERT (119K)",
         "category": "Baselines",
-        "hf_name": "bert-base-multilingual-cased",
+        "hf_name": "google-bert/bert-base-multilingual-cased",
         "subfolder": None,
         "type": "hf",
         "description": "119K WordPiece cross-lingual baseline tokenizer."
@@ -137,6 +146,7 @@ def get_model_instance(model_id: str):
     raise ValueError(f"Unsupported model type: {mtype}")
 
 
+@lru_cache(maxsize=512)
 def tokenize_text(model_id: str, text: str) -> dict:
     """Tokenize input text and return rich token metadata."""
     meta = MODELS_BY_ID.get(model_id)

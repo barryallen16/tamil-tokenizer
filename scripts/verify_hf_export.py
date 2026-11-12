@@ -4,7 +4,7 @@
 Usage:
   python scripts/verify_hf_export.py <our_tokenizer.json> <hf_dir> [corpus] [max_lines]
 
-Build `encode_lines` first (cargo build --release --bin encode_lines) and
+Build first (cargo build --release) and
 `pip install tokenizers`. Reports both ID agreement and decode fidelity, which
 catch different failures: byte-table drift breaks every line, a pretokenizer
 mismatch breaks some, and a decoder mismatch breaks round-trip only.
@@ -33,8 +33,9 @@ def main():
     lines = [l.rstrip('\n') for l in open(corpus, encoding='utf-8')][:limit]
     lines = [l for l in lines if l.strip()]
 
+    tok_bin = './target/release/tamil_tokenizer.exe' if sys.platform == 'win32' else './target/release/tamil_tokenizer'
     proc = subprocess.run(
-        ['./target/release/encode_lines.exe', ours_path],
+        [tok_bin, 'encode', ours_path, '--lines-json'],
         input='\n'.join(lines),
         capture_output=True, text=True, encoding='utf-8',
     )

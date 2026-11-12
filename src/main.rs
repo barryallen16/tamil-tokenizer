@@ -1,7 +1,9 @@
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::time::Instant;
-use tamil_tokenizer::{export_hf, load_tokenizer, FastBPEEncoder, OptimizedBPETrainer, TamilTokenizer};
+use tamil_tokenizer::{
+    export_hf, load_tokenizer, FastBPEEncoder, OptimizedBPETrainer, TamilTokenizer,
+};
 
 fn print_usage(prog: &str) {
     eprintln!(
@@ -23,7 +25,10 @@ Commands:
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let prog = args.first().map(String::as_str).unwrap_or("tamil_tokenizer");
+    let prog = args
+        .first()
+        .map(String::as_str)
+        .unwrap_or("tamil_tokenizer");
 
     if args.len() < 2 {
         print_usage(prog);
@@ -156,10 +161,8 @@ fn cmd_decode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let stdin = io::stdin();
         for line in stdin.lock().lines() {
             let line = line?;
-            let ids: Result<Vec<u32>, _> = line
-                .split_whitespace()
-                .map(|s| s.parse::<u32>())
-                .collect();
+            let ids: Result<Vec<u32>, _> =
+                line.split_whitespace().map(|s| s.parse::<u32>()).collect();
             let ids = ids?;
             println!("{}", enc.decode(&ids));
         }
@@ -191,7 +194,10 @@ fn cmd_score(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let vocab_file = &args[0];
     let corpus_file = &args[1];
     let label = args.get(2).cloned().unwrap_or_else(|| corpus_file.clone());
-    let max_bytes: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+    let max_bytes: usize = args
+        .get(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(usize::MAX);
 
     let (vocab, merges) = load_tokenizer(vocab_file)?;
     let enc = FastBPEEncoder::new_with_merges(vocab, &merges)?;
@@ -264,7 +270,10 @@ fn cmd_repl(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let (vocab, merges) = load_tokenizer(vocab_file)?;
     let enc = FastBPEEncoder::new_with_merges(vocab, &merges)?;
 
-    println!("Loaded {} tokens. Type text to encode, or 'quit' to exit:\n", enc.vocab_size());
+    println!(
+        "Loaded {} tokens. Type text to encode, or 'quit' to exit:\n",
+        enc.vocab_size()
+    );
 
     let stdin = io::stdin();
     loop {

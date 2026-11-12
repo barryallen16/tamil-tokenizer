@@ -514,8 +514,6 @@ impl OptimizedBPETrainer {
             "<|question|>",
             "<|answer|>",
             "<|code|>",
-            // "<|tamil|>",
-            // "<|english|>",
         ];
 
         let mut current_id = base_vocab_size;

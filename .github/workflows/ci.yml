@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --release
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run python -m compileall -q scripts/ playground/
+      - name: entrypoint check
+        run: |
+          uv run python - <<'EOF'
+          import ast, pathlib, sys
+          bad = []
+          for p in sorted(pathlib.Path("scripts").glob("*.py")):
+              src = p.read_text(encoding="utf-8")
+              tree = ast.parse(src, str(p))
+              has_main = any(
+                  isinstance(n, ast.FunctionDef) and n.name == "main"
+                  for n in ast.walk(tree)
+              )
+              if not has_main and '__name__' not in src:
+                  bad.append(f"{p}: no entry point")
+          if bad:
+              print("::error::" + "; ".join(bad))
+              sys.exit(1)
+          print(f"checked {len(list(pathlib.Path('scripts').glob('*.py')))} scripts")
+          EOF

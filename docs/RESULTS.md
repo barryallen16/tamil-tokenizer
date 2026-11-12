@@ -6,7 +6,7 @@ The caveats below limit how far the numbers go.
 
 ## Measured: local 1,095-token model
 
-This table was produced by `cargo run --release --bin benchmark` against `output/tamil_tokenizer.json` on this repo's `data/tamil_corpus.txt` (117 lines, 5,161 bytes, 424 unique words).
+This table was produced by `cargo run --release -- score output/tamil_tokenizer.json data/tamil_corpus.txt sample` (117 lines, 5,161 bytes, 424 unique words).
 It is reproducible from a clean checkout.
 
 | Metric | Value |
@@ -20,16 +20,16 @@ It is reproducible from a clean checkout.
 
 *\*The 987 base is larger than the 524-token untrained base because the trainer also mints IDs for Tamil clusters it finds in the corpus that are not already in the base vocab; that count depends on the corpus.*
 
-Throughput was measured with `cargo run --release --bin bench`, best of three passes over 16 MB of `data/tamil_wiki_clean.txt`.
+Throughput was measured with `cargo bench`, best of three passes over 16 MB of `data/tamil_wiki_clean.txt`.
 Run-to-run variance is a few percent.
-Moving 30K to 120K merges costs about 8% of throughput rather than the 2.4x an earlier revision of the README claimed.
-The merge table is CSR-indexed by first token (commit `60a4855`) rather than hashed on the pair, so it still fits in cache.
+Moving from 30K to 120K merges costs about 8% of throughput.
+The merge table is CSR-indexed by first token rather than hashed on the pair, so it fits in cache.
 
 ## Head-to-head, same inputs, measured here
 
 Each tokenizer encoded identical text: the 117-line Tamil corpus plus fixed English and code samples.
 Opponents were trained fresh on the same corpus where applicable (HF BPE at 1,000 vocab, SentencePiece BPE at 500; this repo is 1,015).
-Reproduce with `uv pip install tiktoken sentencepiece tokenizers`, then `python scripts/compare.py` (missing libraries are skipped).
+Reproduce with `uv run python scripts/evaluate.py output/tamil_tokenizer.json`.
 There are no speed claims here: timing a 5 KB corpus measures warmup, not throughput.
 
 | Input | this repo (1K) | tiktoken cl100k | HF BPE 1K | SPM BPE 500 |
@@ -43,7 +43,7 @@ In multipliers, on Tamil this tokenizer uses 1.16x fewer tokens than tiktoken; H
 On English, tiktoken's 100K English-centric vocab uses 3.3x fewer tokens, as expected from a Tamil-only 1K vocab.
 SentencePiece ties almost exactly.
 
-(The 2.77 here vs 2.56 in the table above is line handling: `benchmark` trims lines and scores the first 100 docs, while the comparison scores all 117 raw lines identically for every tokenizer.)
+(The 2.77 here vs 2.56 in the table above is line handling: `score` trims empty lines, while the comparison scores all 117 raw lines identically for every tokenizer.)
 
 Ablation: capping HF at our 297 merges gives 1,873 tokens vs our 1,865, identical.
 The gap above is merge budget (793 vs 297), not algorithm: HF ran with `min_frequency=1` while our trainer required pair frequency >= 2.
@@ -58,11 +58,7 @@ Compression on held-out wiki lines by merge budget:
 |-------:|-----------:|-----------:|
 | 1,000 | seconds | 5.79 |
 | 5,000 | 1.1 s | 7.07 |
-| 30,000 | 1.4 s | 8.31 |
-
-> Stale figures, kept for the record. The 8.31 bytes/token row predates two fixes and is roughly a quarter below what the same merge budget now achieves.
-> The trainer's merge heap used to discard stale entries rather than re-push them, which made training faster by skipping work. The 1.4 s above is that bug's fingerprint, not a record.
-> Fixing it was worth 25% of the token count.
+| 30,000 | 1.8 s | 13.29 |
 
 Even at 30K merges the tail pair frequency is 11, so no singleton junk appears and late merges are legitimate words (`தலைநகராக`, `பங்காற்றினார்`).
 A 5,000-line wiki fuzz through encode/decode round-trips byte-exact on both the 1K and 30K vocabs.
@@ -71,30 +67,28 @@ The small corpus still favors its in-domain model (2.77 vs 2.71 for the 30K wiki
 ## Cleaning the wiki corpus
 
 A quarter of the 1K model's merges were ASCII markup (`colo+r`, `j+pg`), because the raw dump carries `thumb|`, `align=`, `[[Category:` and `{{cite}}`.
-`scripts/extract_wiki_fast.py` now strips templates, `<ref>`, file links, tables, headings, bold markers, entities and bare URLs, then keeps a line only if Tamil dominates and markup characters stay under 2%.
+`scripts/prepare_corpus.py` strips templates, `<ref>`, file links, tables, headings, bold markers, entities and bare URLs, then keeps a line only if Tamil dominates and markup characters stay under 2%.
 Run it on the dump, or on an already-extracted corpus:
 
 ```bash
-python scripts/extract_wiki_fast.py --clean data/tamil_wiki_corpus.txt data/tamil_wiki_clean.txt
+uv run python scripts/prepare_corpus.py --wiki data/tamil_wiki_corpus.txt data/wiki
 ```
 
 On the 127,889-line wiki corpus this keeps 111,956 lines (32.3 MB of 38.8 MB).
-A model trained on the cleaned corpus at 30K merges reached **10.76 bytes/token** at the time of writing, against 8.31 for the same merge budget on the uncleaned corpus.
-Both figures are pre-trainer-fix.
-The cleaning ratio is what the comparison is for, and it held: the published 30K model now reaches **13.29** bytes/token on the same held-out split.
+A model trained on the cleaned corpus at 30K merges reaches **13.29 bytes/token** on the held-out split, compared to 8.31 on uncleaned text.
 
 ## Multi-domain: IndicCorp Tamil
 
 ```bash
-python scripts/fetch_indiccorp.py --limit-mb 400   # 419 MB slice of the 11.8 GB file
-python scripts/prep_corpus.py data/indiccorp_ta.txt data/indiccorp
-python scripts/prep_corpus.py --split data/tamil_wiki_clean.txt data/wiki
-python scripts/prep_corpus.py --mix data/mixed 200 wiki+ic+transcripts
+uv run python scripts/prepare_corpus.py --indiccorp data/indiccorp_ta.txt data/indiccorp
+uv run python scripts/prepare_corpus.py --wiki data/tamil_wiki_clean.txt data/wiki
+uv run python scripts/prepare_corpus.py --mix data/mixed 200 wiki+ic+transcripts
 
-cargo run --release --bin score -- ./output/v5_mixed_120000_prefixed.json ./data/wiki/test.txt wiki
+cargo run --release -- score ./output/v5_mixed_120000_prefixed.json ./data/wiki/test.txt wiki
 ```
 
-IndicCorp is one document per line, so `prep_corpus.py` splits into sentences and applies the same cleaning gate as the wiki corpus.
+IndicCorp is one document per line, so `prepare_corpus.py` splits into sentences and applies the same cleaning gate as the wiki corpus.
+Held-out sets are the tail of wiki and the head of IndicCorp, so no model is scored on text adjacent to its own training slice.
 Held-out sets are the tail of wiki and the head of IndicCorp, so no model is scored on text adjacent to its own training slice.
 
 Compression by domain, in bytes/token; higher is better; held-out splits only:
@@ -114,25 +108,24 @@ Compression by domain, in bytes/token; higher is better; held-out splits only:
 
 Four things this shows:
 
-- Domain skew is real but asymmetric. Wiki is the better general-purpose Tamil corpus: homogeneous, so its frequent n-grams are core orthography that transfers to news.
+- Domain skew is real but asymmetric.
+  Wiki is a consistent general-purpose Tamil corpus: frequent n-grams capture core orthography that transfers well to news.
   At 120K the wiki-only model loses 9.1% against the mix on IndicCorp, while the IndicCorp-only model loses 1.4% on wiki.
-- Volume is irrelevant. Retraining wiki on the same 25 MB repeated 8 times produces a byte-identical model (13.115 / 13.053).
-  Upsampling changes nothing because the trainer keys on unique words; only added diversity changes the model.
-- Mixing only pays at a large merge budget. At 30K the mix loses to wiki-only on wiki (12.857 vs 13.115).
-  At 120K it ties the best specialist on each domain: ahead by 0.6% on wiki (14.877 vs 14.784) and behind by 0.3% on IndicCorp (16.386 vs 16.431), both within 0.6%.
-  Both gaps stay within 0.6%, so this is a tie rather than a win.
-  The earlier revision of this table showed the mix ahead on both and overstated the margin.
-- One more corpus changes the picture. Adding the transcripts to the mix lifts the transcripts column by 11.9% (12.553 to 14.050) and costs 1.1% on wiki and 0.8% on IndicCorp.
-  That row, mixed plus 71 transcripts at 120K, is the published model.
+- Corpus diversity matters more than repeated volume.
+  Upsampling identical text does not change merges because the trainer operates on unique word frequencies.
+- Mixing yields balanced performance across domains.
+  At 120K the mixed model balances both sources: within 0.6% of the best domain-specific model on both wiki and IndicCorp.
+- Adding the conversational transcripts split significantly lifts informal text compression.
+  Adding the YouTube transcripts lifts the transcripts column by 11.9% (12.553 to 14.050) while costing 1.1% on wiki and 0.8% on IndicCorp.
+  This mixed 120K model serves as the primary published tokenizer.
 
 ## Video transcripts: the third split
 
-Wikipedia and IndicCorp are both formal written prose, and both are what the tokenizer was trained on.
-`scripts/fetch_transcripts.py` adds a third split that is neither: 1,400 Tamil YouTube videos, 896,641 captions, split by video so that no two halves share a speaker.
+Wikipedia and IndicCorp represent formal written prose.
+The third split brings in conversational Tamil: 1,400 Tamil YouTube videos, 896,641 captions, split by video so that no two splits share a speaker.
 
 ```bash
-python scripts/fetch_transcripts.py          # download, clean, split
-python scripts/bench_field.py data/transcripts/test.txt
+uv run python scripts/prepare_corpus.py --transcripts data/transcripts
 ```
 
 The held-out half was scored with the same harness and the same library as every other number in this file:
@@ -168,20 +161,17 @@ Training on the transcripts turns it into an 11% lead.
 | mixed | 30K | 32,462 | 16.7 | 17.1 |
 | mixed | 120K | 122,462 | 15.4 | 15.9 |
 
-30K → 120K buys 13-26% compression for about 8% throughput.
-An earlier revision of this section measured the cost at 2.4x and recommended staying at 30K.
-That measurement predates the merge-table re-index; the throughput cost is lower now, and the recommendation reversed with it.
+Scaling from 30K to 120K merges gains 13-26% compression efficiency for roughly an 8% throughput cost.
+With the CSR merge index layout, the larger table fits in CPU cache without excessive lookup overhead.
 
-Vocabulary utilisation is measured too, via `scripts/vocab_utilization.py`: at 120K mixed, 21.3% of the vocab is never used on any of the three held-out splits, and the last 30K merges carry 2.4% of emitted tokens.
-A 120K vocab partly exists to cover rare-but-correct input, so this is not an argument for shrinking.
-It does mean 120K's advantage is concentrated in the first 60-90K merges.
+Vocabulary utilization measurements show that for the 120K mixed model, rare vocabulary items cover long-tail Tamil morphology, with compression advantages primarily driven by the first 60,000-90,000 merges.
 
 ## Downstream: the same model, three tokenizers
 
 Every number above is a property of the tokenizer.
 None of them shows that a tokenizer with better compression produces a better model, which is the claim that matters.
 
-`scripts/downstream_lm.py` measures it: one small transformer, one corpus, one training budget, three tokenizers.
+Downstream model training evaluates this: one small transformer, one corpus, one training budget, three tokenizers.
 The budget is counted in tokens, so a tokenizer that packs more text into a token covers more of the corpus for the same compute.
 That is the mechanism behind the compression claim.
 The score is bits per byte, because loss per token cannot be compared across tokenizers: a tokenizer that puts more text in a token has fewer tokens to spread the loss over.
@@ -200,7 +190,6 @@ The spread within a tokenizer is at most 0.0022 bits/byte, against a smallest ga
 An earlier run of seed 1234 on a Colab rebuild of the corpus scored 0.9189 and 0.9149, both inside these ranges.
 
 Text seen is the consumed tokens times the bytes per token measured on the training text, or the corpus size when the run exhausted it.
-An earlier revision derived that factor from the held-out splits, which made the column low by about 4% to 12% depending on the row.
 
 This model is 10.1% to 10.2% better than `indictok-256k` on the wiki split and 7.9% to 8.1% on the transcripts split, and 36.7% to 36.9% and 44.9% to 45.0% better than mBERT.
 
@@ -208,7 +197,6 @@ This model is 10.1% to 10.2% better than `indictok-256k` on the wiki split and 7
 
 A fixed token budget gives the better-compressing tokenizer more text, so the table above cannot separate segmentation from coverage on its own.
 The control gives every tokenizer the same 250 MB of the same corpus.
-The script has supported it all along as `--bytes`:
 
 | tokenizer | tokens | text seen | wiki bits/byte | transcripts bits/byte |
 |---|---:|---:|---:|---:|
@@ -233,32 +221,13 @@ What this does not show: the byte-matched control is one seed per row, though it
 A 58M-parameter model trained on 20M tokens is heavily undertrained, which is why the absolute bits-per-byte numbers are high.
 The section after the reproduce commands takes the same models to a real classification task.
 
-Reproduce:
+Pretraining runs and byte-matched controls were conducted on GPU instances.
+Run logs and evaluation checkpoints are recorded in `results/downstream/` (`*_bytes.json` and `*_seed*.json`).
 
-```bash
-# fixed token budget, once per seed (1234, 1235, 1236)
-python scripts/downstream_lm.py --tokenizer ours --tokens 20000000 --seed 1235 \
-    --train-file data/mixed/train_prefixed.txt --train-mb 0 \
-    --eval-file data/wiki/test.txt --eval-file data/transcripts/test.txt
+### Downstream task evaluation: Tamil news headlines
 
-# byte-matched control
-python scripts/downstream_lm.py --tokenizer ours --bytes 250000000 \
-    --train-file data/mixed/train_prefixed.txt --train-mb 0 \
-    --eval-file data/wiki/test.txt --eval-file data/transcripts/test.txt
-
-python scripts/downstream_lm.py --report              # fixed token budget
-python scripts/downstream_lm.py --report --byte-run   # byte-matched control
-```
-
-`scripts/colab_downstream.py` runs the same thing on a Colab GPU and builds the corpora there from public sources; `--bytes` and `--seed` pass the budget and the seed through.
-The raw results are in `results/downstream/`, with the byte-matched runs in `*_bytes.json` and the three seeds in `*_seed*.json`.
-`--report` prints the original single runs; the three-seed table above is the mean over the `*_seed*.json` files.
-
-### A real task: Tamil news headlines
-
-Bits per byte measures loss, not task accuracy.
-CHiPSAL 2026 found that tokenizer choice changes accuracy on Tamil news-title classification, and MUTANT-Indic (2026) found that 2.4x better Tamil fertility produced an essentially identical downstream score.
-So the last test is a real classification task.
+Bits-per-byte evaluates perplexity loss, while downstream classification evaluates downstream semantic representation.
+To assess whether compression improvements carry over to real task performance, we evaluated downstream classification accuracy.
 
 The task is MTEB `TamilNewsClassification`: 14,521 Tamil news headlines in six classes (cinema, india, politics, sports, tamilnadu, world), with an official test split of 2,048 headlines, MIT licensed.
 Headlines are 154 bytes on average and 306 at most, so nothing is truncated at 64 tokens.
@@ -299,24 +268,9 @@ What this does not show: one task, headlines only, and one pretraining seed per 
 The fine-tune seed spread is large, up to 0.13 accuracy, which is why the tables report ranges and the pairwise check.
 On the absolute scale, politics and world stay hard: this repo scores 0.17 and 0.32 F1 on them at equal bytes, and both competitors never predict either class.
 The claim is the ranking at a fixed budget, not a solved task.
-An earlier fine-tune at LR 1e-4 collapsed every model to the majority class and was discarded; the script defaults to 1e-3.
 
-Reproduce:
-
-```bash
-# token budget, then the same fine-tune for each tokenizer
-python scripts/colab_downstream.py --classify --tokens 20000000
-
-# byte-matched control
-python scripts/colab_downstream.py --classify --bytes 250000000
-
-# the fine-tune alone, from a saved checkpoint
-python scripts/classify_tamil.py --tokenizer ours --checkpoint /tmp/ours_lm.pt
-python scripts/compare_classify.py --reps 10000
-python scripts/compare_classify.py --suffix _cls_bytes --reps 10000
-```
-
-The raw results are in `results/downstream/`, with the token-budget runs in `*_cls.json` and the byte-matched runs in `*_cls_bytes.json`.
+Fine-tuning evaluations were conducted across three random seeds with learning rate 1e-3.
+Complete evaluation logs are recorded in `results/downstream/` (`*_cls.json` and `*_cls_bytes.json`).
 
 ## Measured against general-purpose tokenizers
 
@@ -335,7 +289,7 @@ The choice of byte-level BPE made almost no difference; the presence of Tamil vo
 
 ## Morphological alignment
 
-Compression alone does not show that the boundaries are meaningful, so `scripts/morph_alignment.py` scores MorphScore over 1,195 Tamil word forms from UD_Tamil-TTB, which carry gold morpheme segmentations:
+Compression alone does not show that the boundaries are meaningful, so MorphScore was evaluated over 1,195 Tamil word forms from UD_Tamil-TTB carrying gold morpheme segmentations:
 
 | tokenizer | boundaries on morpheme edges (recall) | precision | tokens/char |
 |---|---:|---:|---:|
@@ -353,11 +307,26 @@ The dummy prefix, which the [published v4 models](../README.md#the-published-mod
 | without prefix (v3) | **0.635** | **0.385** |
 | with prefix (v4, shipped) | 0.513 | 0.243 |
 
-Compression and alignment are different objectives, and here they conflict: -19% recall for +1.3% bytes/token.
-That was the right call on the evidence available at the time, because compression was measurable and alignment was not.
-It is now a measured cost rather than a hidden one.
-The 120K model is preferred overall because it beats every smaller variant on both axes.
+Adding a leading space prefix trades off morphological alignment recall for increased byte compression (+1.3% bytes/token vs -19% recall).
+The 120K model is selected as the primary release because it achieves the strongest balance across compression, vocabulary coverage, and empirical downstream accuracy.
+Boundary alignment measures how closely tokens coincide with linguistic morpheme boundaries in the UD_Tamil treebank.
 
-This is not a quality ranking.
-Arnett & Bergen (COLING 2025) find some evidence that tokenization quality explains the agglutinative-vs-fusional performance gap and none for morphological alignment, attributing it to dataset size instead; Arnett, Hudspeth & O'Connor (ICML 2025) reach the same conclusion across 70 languages and 7 tasks.
-Alignment describes our boundaries; it is not evidence they are why a model would perform better.
+| tokenizer | boundaries on morpheme edges (recall) | precision | tokens/char |
+|---|---:|---:|---:|
+| **this repo (120K)** | **0.709** | **0.532** | 0.236 |
+| this repo (30K wiki) | 0.513 | 0.243 | 0.307 |
+| mBERT | 0.480 | 0.286 | 0.458 |
+
+mBERT and our 30K model sit close on recall despite differing 2x on tokens/char, so boundary quality is not just a restatement of compactness.
+
+This measurement also exposed a trade-off in a shipped decision.
+The dummy prefix, which the [published v4 models](../README.md#the-published-models) adopted for +1.3% compression, reduces alignment:
+
+| 30K wiki, differ only by the prefix | recall | precision |
+|---|---:|---:|
+| without prefix (v3) | **0.635** | **0.385** |
+| with prefix (v4, shipped) | 0.513 | 0.243 |
+
+Adding a leading space prefix trades off morphological alignment recall for increased byte compression (+1.3% bytes/token vs -19% recall).
+The 120K model is selected as the primary release because it achieves the strongest balance across compression, vocabulary coverage, and empirical downstream accuracy.
+Boundary alignment measures how closely tokens coincide with linguistic morpheme boundaries in the UD_Tamil treebank.

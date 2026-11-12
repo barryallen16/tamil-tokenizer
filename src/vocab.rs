@@ -224,8 +224,6 @@ impl TamilTokenizer {
     }
 
     pub fn save_vocab(&self, path: &str) -> Result<()> {
-        // use std::collections::BTreeMap;
-
         // Build (id -> token) so we can serialize in strict ID order
         let mut by_id: Vec<(u32, &str)> = self
             .vocab
@@ -234,8 +232,7 @@ impl TamilTokenizer {
             .collect();
         by_id.sort_by_key(|(id, _)| *id); // stable, ascending ID
 
-        // Rebuild an ordered map purely for pretty, deterministic JSON
-        // We’ll write as: [{"id":0,"token":"..."}, ...] to avoid key-order debates
+        // Write as [{"id":0,"token":"..."}, ...] for deterministic serialization.
         #[derive(serde::Serialize)]
         struct Row<'a> {
             id: u32,

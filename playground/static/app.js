@@ -331,13 +331,23 @@
     const tokWordEl = document.getElementById(`metric-tok-word-${idx}`);
     const savingsEl = document.getElementById(`metric-savings-${idx}`);
 
-    if (!data || data.error) {
+    if (!data) {
       if (vocabTag) vocabTag.textContent = '--';
       if (tokensEl) tokensEl.textContent = '0';
       if (bytesTokEl) bytesTokEl.textContent = '0.0';
       if (tokWordEl) tokWordEl.textContent = '0.0';
       if (savingsEl) savingsEl.textContent = '--';
       renderPanelBodyOnly(idx, null);
+      return;
+    }
+
+    if (data.error) {
+      if (vocabTag) vocabTag.textContent = 'Error';
+      if (tokensEl) tokensEl.textContent = '--';
+      if (bytesTokEl) bytesTokEl.textContent = '--';
+      if (tokWordEl) tokWordEl.textContent = '--';
+      if (savingsEl) savingsEl.textContent = 'Error';
+      renderPanelBodyOnly(idx, data);
       return;
     }
 
@@ -411,6 +421,11 @@
   function renderPanelBodyOnly(idx, data) {
     const bodyEl = document.getElementById(`panel-body-${idx}`);
     if (!bodyEl) return;
+
+    if (data && data.error) {
+      bodyEl.innerHTML = `<div class="empty-state" style="color: var(--danger-color, #ff6b6b)">Error: ${escapeHtml(data.error)}</div>`;
+      return;
+    }
 
     if (!data || !data.tokens || data.tokens.length === 0) {
       bodyEl.innerHTML = '<div class="empty-state">No text to tokenize</div>';

@@ -1,3 +1,5 @@
+import collections
+import gc
 import json
 import os
 import sys
@@ -115,17 +117,26 @@ AVAILABLE_MODELS = [
 ]
 
 MODELS_BY_ID = {m["id"]: m for m in AVAILABLE_MODELS}
-_LOADED_MODELS = {}
+
+# Strict LRU cache capped at 2 models to stay under 50 MB RAM on 512MB hosts
+MAX_ACTIVE_MODELS = 2
+_LOADED_MODELS = collections.OrderedDict()
 
 
 def get_model_instance(model_id: str):
-    """Lazy load and cache tokenizer model instance."""
+    """Lazy load and cache tokenizer model instance with strict memory eviction."""
     if model_id in _LOADED_MODELS:
+        _LOADED_MODELS.move_to_end(model_id)
         return _LOADED_MODELS[model_id]
 
     meta = MODELS_BY_ID.get(model_id)
     if not meta:
         raise ValueError(f"Unknown model id: {model_id}")
+
+    # Evict oldest model to keep memory footprint under 50MB
+    while len(_LOADED_MODELS) >= MAX_ACTIVE_MODELS:
+        _LOADED_MODELS.popitem(last=False)
+        gc.collect()
 
     mtype = meta["type"]
     if mtype == "tiktoken":
@@ -135,11 +146,13 @@ def get_model_instance(model_id: str):
         return inst
 
     if mtype == "hf":
-        from transformers import AutoTokenizer
-        kwargs = {}
+        from tokenizers import Tokenizer
         if meta.get("subfolder"):
-            kwargs["subfolder"] = meta["subfolder"]
-        inst = AutoTokenizer.from_pretrained(meta["hf_name"], **kwargs)
+            from huggingface_hub import hf_hub_download
+            fpath = hf_hub_download(meta["hf_name"], filename=f"{meta['subfolder']}/tokenizer.json")
+            inst = Tokenizer.from_file(fpath)
+        else:
+            inst = Tokenizer.from_pretrained(meta["hf_name"])
         _LOADED_MODELS[model_id] = inst
         return inst
 
@@ -178,7 +191,6 @@ def tokenize_text(model_id: str, text: str) -> dict:
             hex_str = " ".join(f"0x{b:02X}" for b in raw_bytes)
             decoded_text = raw_bytes.decode("utf-8", errors="replace")
 
-            # Try to match offset in original string
             token_len_chars = len(decoded_text)
             start = curr_offset
             end = curr_offset + token_len_chars
@@ -206,57 +218,41 @@ def tokenize_text(model_id: str, text: str) -> dict:
             })
 
     elif mtype == "hf":
-        vocab_size = len(inst)
-        backend = getattr(inst, "backend_tokenizer", None)
+        vocab_size = inst.get_vocab_size()
+        enc = inst.encode(text)
+        token_ids = enc.ids
+        offsets = enc.offsets
+        tokens = enc.tokens
 
-        if backend is not None:
-            enc = backend.encode(text)
-            token_ids = enc.ids
-            offsets = enc.offsets
+        for idx, (tid, (start, end), tok_str) in enumerate(zip(token_ids, offsets, tokens)):
+            if start < end and end <= len(text):
+                substr = text[start:end]
+            else:
+                dec = inst.decode([tid], skip_special_tokens=False)
+                substr = tok_str if tok_str else dec
 
-            for idx, (tid, (start, end)) in enumerate(zip(token_ids, offsets)):
-                if start < end and end <= len(text):
-                    substr = text[start:end]
-                else:
-                    substr = inst.decode([tid], skip_special_tokens=False)
+            raw_bytes = substr.encode("utf-8")
+            bytes_list = list(raw_bytes)
+            hex_str = " ".join(f"0x{b:02X}" for b in raw_bytes)
 
-                raw_bytes = substr.encode("utf-8")
-                bytes_list = list(raw_bytes)
-                hex_str = " ".join(f"0x{b:02X}" for b in raw_bytes)
+            is_special = bool(
+                start == end or
+                tok_str.startswith("<|") or
+                tok_str.startswith("<s") or
+                tok_str.startswith("</s") or
+                tok_str.startswith("[") and tok_str.endswith("]")
+            )
 
-                is_special = bool(
-                    tid in inst.all_special_ids
-                    if hasattr(inst, "all_special_ids")
-                    else False
-                )
-
-                tokens_out.append({
-                    "index": idx,
-                    "id": int(tid),
-                    "text": substr,
-                    "bytes": bytes_list,
-                    "hex": hex_str,
-                    "start": int(start),
-                    "end": int(end),
-                    "is_special": is_special
-                })
-        else:
-            token_ids = inst.encode(text, add_special_tokens=False)
-            curr = 0
-            for idx, tid in enumerate(token_ids):
-                substr = inst.decode([tid], skip_special_tokens=False)
-                raw_bytes = substr.encode("utf-8")
-                tokens_out.append({
-                    "index": idx,
-                    "id": int(tid),
-                    "text": substr,
-                    "bytes": list(raw_bytes),
-                    "hex": " ".join(f"0x{b:02X}" for b in raw_bytes),
-                    "start": curr,
-                    "end": curr + len(substr),
-                    "is_special": False
-                })
-                curr += len(substr)
+            tokens_out.append({
+                "index": idx,
+                "id": int(tid),
+                "text": substr,
+                "bytes": bytes_list,
+                "hex": hex_str,
+                "start": int(start),
+                "end": int(end),
+                "is_special": is_special
+            })
 
     token_count = len(tokens_out)
     bytes_per_tok = round(byte_count / max(1, token_count), 2)

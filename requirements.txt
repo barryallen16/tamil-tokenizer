@@ -1,0 +1,5 @@
+tokenizers>=0.19
+transformers>=4.40
+tiktoken>=0.7
+sentencepiece>=0.2
+numpy>=1.24

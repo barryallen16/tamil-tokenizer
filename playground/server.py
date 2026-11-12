@@ -100,21 +100,24 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
 
 
 def run(host: str = "127.0.0.1", port: int = 7860):
-    candidate_ports = [port, 7860, 8765, 5173, 8000, 3000, 8088]
-    httpd = None
-    bound_port = None
-
-    for p in candidate_ports:
-        try:
-            server_address = (host, p)
-            httpd = ThreadingHTTPServer(server_address, PlaygroundHandler)
-            bound_port = p
-            break
-        except (PermissionError, OSError) as e:
-            continue
-
-    if httpd is None:
-        sys.exit("Failed to bind server to any candidate port.")
+    try:
+        server_address = (host, port)
+        httpd = ThreadingHTTPServer(server_address, PlaygroundHandler)
+        bound_port = port
+    except (PermissionError, OSError) as e:
+        candidate_ports = [7860, 8765, 5173, 8000, 3000, 8088]
+        httpd = None
+        bound_port = None
+        for p in candidate_ports:
+            try:
+                server_address = (host, p)
+                httpd = ThreadingHTTPServer(server_address, PlaygroundHandler)
+                bound_port = p
+                break
+            except (PermissionError, OSError):
+                continue
+        if httpd is None:
+            sys.exit(f"Failed to bind server to {host}:{port}: {e}")
 
     print(f"Tamil Tokenizer Playground running at http://{host}:{bound_port}/")
     print("Press Ctrl+C to stop.")
@@ -127,8 +130,10 @@ def run(host: str = "127.0.0.1", port: int = 7860):
 
 
 if __name__ == "__main__":
+    env_port = int(os.environ.get("PORT", 7860))
+    env_host = os.environ.get("HOST", "0.0.0.0" if "PORT" in os.environ else "127.0.0.1")
     parser = argparse.ArgumentParser(description="Tamil Tokenizer Playground Web Server")
-    parser.add_argument("--host", default="127.0.0.1", help="Host address to bind (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=7860, help="Port to bind (default: 7860)")
+    parser.add_argument("--host", default=env_host, help="Host address to bind")
+    parser.add_argument("--port", type=int, default=env_port, help="Port to bind")
     args = parser.parse_args()
     run(host=args.host, port=args.port)

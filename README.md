@@ -1,8 +1,16 @@
-# Tamil Tokenizer
+# Partha Tamil Tokenizer
 
 A BPE tokenizer library for Tamil text, written in Rust.
-It trains on custom Tamil corpora, encodes quickly, and exports to Hugging Face without changing token IDs.
+It trains on custom Tamil corpora, encodes quickly, and exports to Hugging Face format without changing token IDs.
 On the same 20M-token pretraining budget it is 10.1-10.2% better than `indictok-256k` and 36.7-36.9% better than mBERT in bits per byte on Tamil wiki text, and it is 16.5 points more accurate on six-class Tamil news classification.
+
+[![Live Playground](https://img.shields.io/badge/Live%20Playground-partha.isroot.in-blue)](https://partha.isroot.in/)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow)](https://huggingface.co/barryallen16/partha-tamil-tokenizer)
+
+![Partha Tamil Tokenizer Playground](assets/playground.png)
+
+Try the interactive playground live at [partha.isroot.in](https://partha.isroot.in/).
+It compares tokenization, byte metrics, and token-count savings against OpenAI, Gemma 4, Llama 4, and mBERT in real time.
 
 ## Features
 
@@ -95,15 +103,14 @@ assert_eq!(decoded, "வணக்கம்!");
 
 ### Playground
 
-![Partha Tamil Tokenizer Playground](assets/playground.png)
-
-Launch the interactive tokenizer comparison playground:
+Launch the interactive tokenizer comparison playground locally:
 
 ```bash
 uv run python playground/server.py
 ```
 
 Then open `http://127.0.0.1:7860` in your browser.
+You can also access the hosted version directly at [partha.isroot.in](https://partha.isroot.in/).
 
 ## Results
 

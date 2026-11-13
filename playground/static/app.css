@@ -190,6 +190,37 @@ body {
   color: var(--text-primary);
 }
 
+.btn-star {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  gap: 0.35rem;
+  font-weight: 500;
+  transition: all 0.15s ease-in-out;
+}
+.btn-star:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+.btn-star .star-icon {
+  color: #e3b341;
+  transition: transform 0.15s ease;
+}
+.btn-star:hover .star-icon {
+  transform: scale(1.15);
+}
+.btn-star .star-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.05rem 0.35rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  margin-left: 0.15rem;
+}
+
 .btn-link {
   background: none;
   border: none;
@@ -218,7 +249,14 @@ body {
   font-size: 0.95rem;
   color: var(--text-secondary);
   max-width: 820px;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.hero-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.15rem;
 }
 
 /* Preset Chips */

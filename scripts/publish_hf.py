@@ -182,6 +182,10 @@ tags:
   - bpe
   - tamil
   - bpe-tokenizer
+  - indic
+  - rust
+  - partha
+pipeline_tag: text-generation
 library_name: tokenizers
 license: mit
 ---
@@ -192,6 +196,8 @@ Partha is a BPE tokenizer for Tamil, trained on cleaned Tamil Wikipedia, IndicCo
 The base vocabulary contains 1,135 Tamil orthographic clusters rather than raw bytes, so
 Grantha syllables and conjuncts cost one token each instead of being reassembled
 from merges.
+
+Interactive comparison playground available live at [partha.isroot.in](https://partha.isroot.in/).
 
 ## Numbers
 

@@ -43,11 +43,29 @@
   async function init() {
     setupTheme();
     setupEventListeners();
+    fetchGitHubStars();
     await fetchModels();
     renderPanels();
 
     // Load initial preset
     selectPreset('greeting');
+  }
+
+  async function fetchGitHubStars() {
+    try {
+      const resp = await fetch('https://api.github.com/repos/barryallen16/partha-tamil-tokenizer');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (typeof data.stargazers_count === 'number') {
+        const starEl = document.getElementById('star-count');
+        if (starEl) {
+          starEl.textContent = data.stargazers_count;
+          starEl.style.display = 'inline-block';
+        }
+      }
+    } catch {
+      // Gracefully silent on network fail
+    }
   }
 
   function setupTheme() {

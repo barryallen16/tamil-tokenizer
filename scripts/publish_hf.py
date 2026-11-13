@@ -215,6 +215,30 @@ Bits-per-byte evaluation under Qwen2.5-0.5B:
 | Llama 3 | 11.96 | 3.60 |
 | cl100k_base | 11.88 | 3.60 |
 
+### Real-world comparison against foundation models
+
+Measured across 21.0 MB of text (4,000 documents, 875,413 words, 20,990,118 UTF-8 bytes) from two foundation corpora: `ai4bharat/sangraha` and `mozhi-ai/tamil-corpus`.
+Benchmarked across all 12 playground tokenizers:
+
+| Rank | Model | Category | Tokens | Bytes / Token | Tokens / Word | Savings vs OpenAI |
+|:---:|:---|:---|---:|---:|---:|---:|
+| **1** | **Partha Tamil (120K)** | Partha | **1,417,440** | **14.81** | **1.62** | **+50.2%** |
+| 2 | AI4Bharat IndicBERTv2 (256K) | Indic LLMs | 1,562,846 | 13.43 | 1.79 | +45.1% |
+| **3** | **Partha Tamil (30K)** | Partha | **1,646,352** | **12.75** | **1.88** | **+42.2%** |
+| 4 | Sarvam-1 (68K) | Indic LLMs | 2,016,655 | 10.41 | 2.30 | +29.2% |
+| 5 | Google Gemma 4 (262K) | Open LLMs | 2,243,822 | 9.35 | 2.56 | +21.2% |
+| 6 | Sarvam AI 105B (262K) | Indic LLMs | 2,248,024 | 9.34 | 2.57 | +21.0% |
+| 7 | OpenAI GPT-5.x & o1/3 (o200k_base) | OpenAI | 2,846,929 | 7.37 | 3.25 | baseline |
+| 8 | mBERT (119K) | Baselines | 3,124,699 | 6.72 | 3.57 | -9.8% |
+| 9 | Alibaba Qwen 3.8 (248K) | Open LLMs | 3,818,285 | 5.50 | 4.36 | -34.1% |
+| 10 | Meta Llama 4 (201K) | Open LLMs | 5,223,528 | 4.02 | 5.97 | -83.5% |
+| 11 | Meta Muse Glimmer (202K) | Open LLMs | 5,223,528 | 4.02 | 5.97 | -83.5% |
+| 12 | OpenAI GPT-4 & 3.5 (legacy cl100k) | OpenAI | 10,308,009 | 2.04 | 11.78 | -262.1% |
+
+General foundation models suffer from a heavy Tamil token tax because their vocabularies treat Tamil as fallback bytes.
+Partha 120K tokenizes real-world Tamil at 1.62 tokens per word, cutting API cost and context consumption by 50.2% compared to OpenAI GPT-5.x / o1.
+Even the compact 30K Partha model outperforms models with 200K+ vocabularies like Gemma 4, Sarvam 105B, and OpenAI's 200K models.
+
 Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
 byte-fallback BPE with no Tamil vocabulary, so both collapse to about one token
 per UTF-8 byte. Which byte-level BPE you pick makes no difference; having Tamil

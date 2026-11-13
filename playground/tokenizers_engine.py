@@ -11,7 +11,7 @@ AVAILABLE_MODELS = [
         "id": "tamil-120k",
         "name": "Partha Tamil (120K)",
         "category": "Partha",
-        "hf_name": "barryallen16/tamil-tokenizer-wiki",
+        "hf_name": "barryallen16/partha-tamil-tokenizer",
         "subfolder": None,
         "type": "hf",
         "description": "Partha 122K vocab BPE with pre-populated Tamil conjunct stems. Optimized on Wikipedia, IndicCorp, and transcripts."
@@ -20,7 +20,7 @@ AVAILABLE_MODELS = [
         "id": "tamil-30k",
         "name": "Partha Tamil (30K)",
         "category": "Partha",
-        "hf_name": "barryallen16/tamil-tokenizer-wiki",
+        "hf_name": "barryallen16/partha-tamil-tokenizer",
         "subfolder": "tamil_tokenizer_wiki_hf",
         "type": "hf",
         "description": "Partha 32K compact vocab BPE. Fast inference and small memory footprint."

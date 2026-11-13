@@ -36,7 +36,7 @@ Corpus preparation and mixing are handled by `scripts/prepare_corpus.py`.
 ```python
 from transformers import AutoTokenizer
 
-tok = AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")
+tok = AutoTokenizer.from_pretrained("barryallen16/partha-tamil-tokenizer")
 tok.encode("வணக்கம் இது தமிழ்").input_ids
 ```
 
@@ -44,7 +44,7 @@ The 120K model is at the repository root; the 30K model is in `tamil_tokenizer_w
 
 ```python
 tok_30k = AutoTokenizer.from_pretrained(
-    "barryallen16/tamil-tokenizer-wiki", subfolder="tamil_tokenizer_wiki_hf"
+    "barryallen16/partha-tamil-tokenizer", subfolder="tamil_tokenizer_wiki_hf"
 )
 ```
 
@@ -119,7 +119,7 @@ Full tables, confidence intervals, per-class scores, and caveats are in [docs/RE
 
 ## The published models
 
-The [Hub repository](https://huggingface.co/barryallen16/tamil-tokenizer-wiki) publishes two models.
+The [Hub repository](https://huggingface.co/barryallen16/partha-tamil-tokenizer) publishes two models.
 Both are retrained as v4 with a dummy prefix on every training line.
 The prefix closes the line-initial word split and is worth 0.5-1.3% depending on merge budget.
 
@@ -136,4 +136,4 @@ Use the 30K model when artifact size matters more than sequence length.
 ## Documentation
 
 - [Results](docs/RESULTS.md): full tables, confidence intervals, byte-matched controls, and caveats.
-- [Hugging Face model](https://huggingface.co/barryallen16/tamil-tokenizer-wiki): the published 30K and 120K tokenizers and the training corpora.
+- [Hugging Face model](https://huggingface.co/barryallen16/partha-tamil-tokenizer): the published 30K and 120K tokenizers and the training corpora.

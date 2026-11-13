@@ -35,10 +35,10 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_REPO = 'barryallen16/tamil-tokenizer-wiki'
+DEFAULT_REPO = 'barryallen16/partha-tamil-tokenizer'
 
 # The model whose artifacts also go to the repository root, so that
-# `AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")` loads
+# `AutoTokenizer.from_pretrained("barryallen16/partha-tamil-tokenizer")` loads
 # without a subfolder argument. It has to be the model the README calls the
 # default, or the one-liner and the documentation disagree.
 DEFAULT_KEY = '120k'
@@ -186,9 +186,9 @@ library_name: tokenizers
 license: mit
 ---
 
-# Tamil tokenizer
+# Partha Tamil Tokenizer
 
-BPE for Tamil, trained on cleaned Tamil Wikipedia, IndicCorpV2, and conversational YouTube transcripts (`sivabharani-comments`).
+Partha is a BPE tokenizer for Tamil, trained on cleaned Tamil Wikipedia, IndicCorpV2, and conversational YouTube transcripts (`sivabharani-comments`).
 The base vocabulary contains 1,135 Tamil orthographic clusters rather than raw bytes, so
 Grantha syllables and conjuncts cost one token each instead of being reassembled
 from merges.
@@ -204,7 +204,7 @@ Bits-per-byte evaluation under Qwen2.5-0.5B:
 
 | tokenizer | tok/word | bits/byte |
 |---|---:|---:|
-| this repo (120K) | **1.57** | **1.00** |
+| Partha Tamil (120K) | **1.57** | **1.00** |
 | bert-base-multilingual-cased | 3.74 | 2.16 |
 | Llama 3 | 11.96 | 3.60 |
 | cl100k_base | 11.88 | 3.60 |
@@ -227,7 +227,7 @@ under 1% either way.
 ```python
 from transformers import AutoTokenizer
 
-tok = AutoTokenizer.from_pretrained("barryallen16/tamil-tokenizer-wiki")
+tok = AutoTokenizer.from_pretrained("barryallen16/partha-tamil-tokenizer")
 tok.encode("வணக்கம் இது தமிழ்").input_ids
 ```
 
@@ -236,7 +236,7 @@ The 120K mixed model sits at the repository root. The 30K wiki model is in
 
 ```python
 tok = AutoTokenizer.from_pretrained(
-    "barryallen16/tamil-tokenizer-wiki", subfolder="tamil_tokenizer_wiki_hf"
+    "barryallen16/partha-tamil-tokenizer", subfolder="tamil_tokenizer_wiki_hf"
 )
 ```
 

@@ -85,10 +85,26 @@ body {
 .logo {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   font-weight: 700;
   font-size: 1.25rem;
   letter-spacing: -0.02em;
+}
+
+.logo-img {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: block;
+  object-fit: contain;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.logo-subtitle {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin-right: 0.15rem;
 }
 
 .logo-icon {

@@ -95,6 +95,8 @@ assert_eq!(decoded, "வணக்கம்!");
 
 ### Playground
 
+![Partha Tamil Tokenizer Playground](assets/playground.png)
+
 Launch the interactive tokenizer comparison playground:
 
 ```bash

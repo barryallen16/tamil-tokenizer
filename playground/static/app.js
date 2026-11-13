@@ -74,8 +74,8 @@
     } catch (err) {
       console.error('Failed to load models list:', err);
       availableModels = [
-        { id: 'tamil-120k', name: 'Tamil Tokenizer (120K)', category: 'This Project' },
-        { id: 'tamil-30k', name: 'Tamil Tokenizer (30K)', category: 'This Project' },
+        { id: 'tamil-120k', name: 'Partha Tamil (120K)', category: 'Partha' },
+        { id: 'tamil-30k', name: 'Partha Tamil (30K)', category: 'Partha' },
         { id: 'openai-o200k', name: 'OpenAI GPT-4o (o200k_base)', category: 'OpenAI' },
         { id: 'openai-cl100k', name: 'OpenAI GPT-4 / 3.5 (cl100k_base)', category: 'OpenAI' },
         { id: 'gemma-4', name: 'Google Gemma 4 (262K)', category: 'Open LLMs' },
@@ -306,7 +306,7 @@
   }
 
   function buildModelOptions(selectedId) {
-    const categories = ['This Project', 'OpenAI', 'Open LLMs', 'Indic LLMs', 'Baselines'];
+    const categories = ['Partha', 'OpenAI', 'Open LLMs', 'Indic LLMs', 'Baselines'];
     let html = '';
 
     categories.forEach(cat => {

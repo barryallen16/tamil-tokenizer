@@ -9,21 +9,21 @@ from functools import lru_cache
 AVAILABLE_MODELS = [
     {
         "id": "tamil-120k",
-        "name": "Tamil Tokenizer (120K)",
-        "category": "This Project",
+        "name": "Partha Tamil (120K)",
+        "category": "Partha",
         "hf_name": "barryallen16/tamil-tokenizer-wiki",
         "subfolder": None,
         "type": "hf",
-        "description": "122K vocab BPE with pre-populated Tamil conjunct stems. Optimized on Wikipedia, IndicCorp, and transcripts."
+        "description": "Partha 122K vocab BPE with pre-populated Tamil conjunct stems. Optimized on Wikipedia, IndicCorp, and transcripts."
     },
     {
         "id": "tamil-30k",
-        "name": "Tamil Tokenizer (30K)",
-        "category": "This Project",
+        "name": "Partha Tamil (30K)",
+        "category": "Partha",
         "hf_name": "barryallen16/tamil-tokenizer-wiki",
         "subfolder": "tamil_tokenizer_wiki_hf",
         "type": "hf",
-        "description": "32K compact vocab BPE. Fast inference and small memory footprint."
+        "description": "Partha 32K compact vocab BPE. Fast inference and small memory footprint."
     },
     {
         "id": "openai-o200k",

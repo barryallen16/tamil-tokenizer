@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unified corpus preparation pipeline for Tamil Tokenizer.
 
 Handles:

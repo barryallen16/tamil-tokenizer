@@ -1,11 +1,8 @@
 import collections
 import gc
-import json
 import os
-import sys
 from functools import lru_cache
 
-# Metadata for all supported tokenizers
 AVAILABLE_MODELS = [
     {
         "id": "tamil-120k",
@@ -93,7 +90,7 @@ AVAILABLE_MODELS = [
         "hf_name": "sarvamai/sarvam-105b",
         "subfolder": None,
         "type": "hf",
-        "description": "262K vocabulary frontier Indic foundation model tokenizer from Sarvam AI."
+        "description": "262K vocabulary Indic foundation model tokenizer from Sarvam AI."
     },
     {
         "id": "sarvam-1",
@@ -118,7 +115,7 @@ AVAILABLE_MODELS = [
 
 MODELS_BY_ID = {m["id"]: m for m in AVAILABLE_MODELS}
 
-# Strict LRU cache capped at 2 models to stay under 50 MB RAM on 512MB hosts
+# LRU cache capped at 2 models to stay under 50 MB RAM on 512MB hosts
 MAX_ACTIVE_MODELS = 2
 _LOADED_MODELS = collections.OrderedDict()
 
@@ -133,7 +130,6 @@ def get_model_instance(model_id: str):
     if not meta:
         raise ValueError(f"Unknown model id: {model_id}")
 
-    # Evict oldest model to keep memory footprint under 50MB
     while len(_LOADED_MODELS) >= MAX_ACTIVE_MODELS:
         _LOADED_MODELS.popitem(last=False)
         gc.collect()
@@ -177,7 +173,6 @@ def tokenize_text(model_id: str, text: str) -> dict:
     word_count = max(1, len(words))
 
     if mtype == "tiktoken":
-        # Encode with tiktoken
         token_ids = inst.encode(text, allowed_special="all")
         vocab_size = inst.n_vocab
 

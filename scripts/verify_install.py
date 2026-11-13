@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check that an exported tokenizer installs the way a user would install it.
 
 The export writes four files. `tokenizer.json` alone is enough for

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check that our Rust encoder and an exported HF tokenizer agree on IDs.
 
 Usage:

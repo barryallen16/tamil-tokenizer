@@ -1,6 +1,5 @@
 import argparse
 import json
-import mimetypes
 import os
 import sys
 from http import HTTPStatus
@@ -14,7 +13,6 @@ if REPO_ROOT not in sys.path:
 
 from playground.tokenizers_engine import AVAILABLE_MODELS, tokenize_text
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
@@ -25,11 +23,9 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
     def log_message(self, format, *args):
-        # Concise server logging
         sys.stderr.write(f"[{self.log_date_time_string()}] {format % args}\n")
 
     def end_headers(self):
-        # Enable CORS for local dev
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
@@ -50,7 +46,6 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
             self.wfile.write(payload.encode("utf-8"))
             return
 
-        # Fallback to static file serving
         return super().do_GET()
 
     def do_POST(self):

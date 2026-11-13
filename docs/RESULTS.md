@@ -89,7 +89,6 @@ cargo run --release -- score ./output/v5_mixed_120000_prefixed.json ./data/wiki/
 
 IndicCorp is one document per line, so `prepare_corpus.py` splits into sentences and applies the same cleaning gate as the wiki corpus.
 Held-out sets are the tail of wiki and the head of IndicCorp, so no model is scored on text adjacent to its own training slice.
-Held-out sets are the tail of wiki and the head of IndicCorp, so no model is scored on text adjacent to its own training slice.
 
 Compression by domain, in bytes/token; higher is better; held-out splits only:
 
@@ -115,9 +114,9 @@ Four things this shows:
   Upsampling identical text does not change merges because the trainer operates on unique word frequencies.
 - Mixing yields balanced performance across domains.
   At 120K the mixed model balances both sources: within 0.6% of the best domain-specific model on both wiki and IndicCorp.
-- Adding the conversational transcripts split significantly lifts informal text compression.
-  Adding the YouTube transcripts lifts the transcripts column by 11.9% (12.553 to 14.050) while costing 1.1% on wiki and 0.8% on IndicCorp.
-  This mixed 120K model serves as the primary published tokenizer.
+- Transcripts improve conversational compression.
+  Adding the YouTube transcripts improves the transcripts split by 11.9% (12.553 to 14.050 bytes/token) while costing 1.1% on wiki and 0.8% on IndicCorp.
+  The mixed 120K model is the primary published tokenizer.
 
 ## Video transcripts: the third split
 
@@ -226,8 +225,7 @@ Run logs and evaluation checkpoints are recorded in `results/downstream/` (`*_by
 
 ### Downstream task evaluation: Tamil news headlines
 
-Bits-per-byte evaluates perplexity loss, while downstream classification evaluates downstream semantic representation.
-To assess whether compression improvements carry over to real task performance, we evaluated downstream classification accuracy.
+Bits-per-byte evaluates perplexity loss; downstream classification checks whether better compression preserves semantic representations.
 
 The task is MTEB `TamilNewsClassification`: 14,521 Tamil news headlines in six classes (cinema, india, politics, sports, tamilnadu, world), with an official test split of 2,048 headlines, MIT licensed.
 Headlines are 154 bytes on average and 306 at most, so nothing is truncated at 64 tokens.
@@ -308,25 +306,4 @@ The dummy prefix, which the [published v4 models](../README.md#the-published-mod
 | with prefix (v4, shipped) | 0.513 | 0.243 |
 
 Adding a leading space prefix trades off morphological alignment recall for increased byte compression (+1.3% bytes/token vs -19% recall).
-The 120K model is selected as the primary release because it achieves the strongest balance across compression, vocabulary coverage, and empirical downstream accuracy.
-Boundary alignment measures how closely tokens coincide with linguistic morpheme boundaries in the UD_Tamil treebank.
-
-| tokenizer | boundaries on morpheme edges (recall) | precision | tokens/char |
-|---|---:|---:|---:|
-| **this repo (120K)** | **0.709** | **0.532** | 0.236 |
-| this repo (30K wiki) | 0.513 | 0.243 | 0.307 |
-| mBERT | 0.480 | 0.286 | 0.458 |
-
-mBERT and our 30K model sit close on recall despite differing 2x on tokens/char, so boundary quality is not just a restatement of compactness.
-
-This measurement also exposed a trade-off in a shipped decision.
-The dummy prefix, which the [published v4 models](../README.md#the-published-models) adopted for +1.3% compression, reduces alignment:
-
-| 30K wiki, differ only by the prefix | recall | precision |
-|---|---:|---:|
-| without prefix (v3) | **0.635** | **0.385** |
-| with prefix (v4, shipped) | 0.513 | 0.243 |
-
-Adding a leading space prefix trades off morphological alignment recall for increased byte compression (+1.3% bytes/token vs -19% recall).
-The 120K model is selected as the primary release because it achieves the strongest balance across compression, vocabulary coverage, and empirical downstream accuracy.
-Boundary alignment measures how closely tokens coincide with linguistic morpheme boundaries in the UD_Tamil treebank.
+The 120K model is the primary release because it achieves the highest compression and downstream accuracy.

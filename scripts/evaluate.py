@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Evaluation metrics: compression ratio and fertility on Tamil, English, code.
 
 Usage: python scripts/evaluate.py [tokenizer.json]

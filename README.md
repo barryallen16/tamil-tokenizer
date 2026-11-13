@@ -15,25 +15,23 @@ It compares tokenization, byte metrics, and token-count savings against OpenAI, 
 ## Features
 
 - Tamil-aware base vocabulary of 1,135 tokens with no training: 256 byte tokens, 12 independent vowels, 23 standalone consonants, 276 consonant+vowel-sign clusters (including Grantha `ஜ ஶ ஷ ஸ ஹ`), 4 special characters (`ஃ ஂ ௐ ௗ`), 15 compound ligatures (`க்ஷ`, `ஸ்ரீ`), 528 conjunct stems, 10 Tamil digits, and 11 extra characters.
-- The conjunct stems are what moved compression.
-  Tamil joins consonants constantly (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`), and each one used to cost 3-4 tokens.
-- Training runs in parallel through [rayon](https://docs.rs/rayon) and uses packed pair storage plus a priority queue for merge selection.
-- Encoding uses a packed merge table with a per-pair rule cache, so a pair is looked up once per chunk instead of once per merge.
-- `encode_batch` and `encode_ordinary_batch` split a document set across all cores.
+- Pre-populated conjunct stems drive the compression gain: Tamil frequently combines consonants (`க்ஷ`, `ஸ்ரீ`, `க்ட`, `ண்ட`), where each cluster otherwise requires 3-4 tokens.
+- Training runs in parallel through [rayon](https://docs.rs/rayon) using packed pair storage and a priority queue for merge selection.
+- Encoding uses a packed merge table with a per-pair rule cache, looking up each pair once per chunk instead of once per merge.
+- `encode_batch` and `encode_ordinary_batch` split document sets across all cores.
 - `export_hf` writes `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json`, and `merges.txt`.
-  The output is checked against Python `tokenizers` and `transformers`.
-- The Rust encoder and the Hugging Face export read the same vocabulary and merge list, so they emit the same token IDs for the same text.
+  The output is validated against Python `tokenizers` and `transformers`.
+- The Rust encoder and Hugging Face export read the same vocabulary and merge list, emitting matching token IDs.
 - Special tokens cover BOS/EOS, language tags, question and answer markers, and 100 reserved slots in an o200k-style layout.
-- Byte mapping uses the exact GPT-2 byte-to-unicode table, so the export matches Hugging Face's `ByteLevel`.
+- Byte mapping uses the exact GPT-2 byte-to-unicode table, matching Hugging Face's `ByteLevel`.
 
 ## Training datasets
 
-The tokenizer trains on a balanced mixture of three complementary corpora:
+The tokenizer trains on three corpora:
 
-- **Tamil Wikipedia**: Formal encyclopedia text providing core orthographic coverage and domain terminology.
-- **IndicCorp v2**: Multi-source Tamil news and web crawl articles providing modern written prose.
-- **YouTube Video Transcripts**: 1,400 conversational Tamil video transcripts (896,641 lines, 71 MB) sourced from `sivabharani-comments`.
-  This adds spoken Tamil patterns and colloquial vocabulary absent from written publications.
+- Tamil Wikipedia: formal encyclopedia articles for orthographic coverage and domain terms.
+- IndicCorp v2: news and web crawl articles for modern written text.
+- YouTube transcripts: 1,400 conversational transcripts (896,641 lines, 71 MB) from `sivabharani-comments` for spoken Tamil patterns and colloquial vocabulary.
 
 Corpus preparation and mixing are handled by `scripts/prepare_corpus.py`.
 
@@ -127,7 +125,7 @@ Full tables, confidence intervals, per-class scores, and caveats are in [docs/RE
 ### Real-world comparison against foundation models
 
 Measured across 21.0 MB of text (4,000 documents, 875,413 words, 20,990,118 UTF-8 bytes) from two foundation corpora: `ai4bharat/sangraha` and `mozhi-ai/tamil-corpus`.
-Benchmarked on Google Colab across all 12 playground tokenizers using `scripts/colab_benchmark.py`.
+Benchmarked across all 12 playground tokenizers using `scripts/benchmark_playground.py`.
 
 | Rank | Model | Category | Tokens | Bytes / Token | Tokens / Word | Savings vs OpenAI |
 |:---:|:---|:---|---:|---:|---:|---:|
@@ -144,24 +142,22 @@ Benchmarked on Google Colab across all 12 playground tokenizers using `scripts/c
 | 11 | Meta Muse Glimmer (202K) | Open LLMs | 5,223,528 | 4.02 | 5.97 | -83.5% |
 | 12 | OpenAI GPT-4 & 3.5 (legacy cl100k) | OpenAI | 10,308,009 | 2.04 | 11.78 | -262.1% |
 
-General foundation models suffer from a heavy Tamil token tax because their vocabularies treat Tamil as fallback bytes.
-Partha 120K tokenizes real-world Tamil at 1.62 tokens per word, cutting API cost and context consumption by 50.2% compared to OpenAI GPT-5.x / o1.
-Even the compact 30K Partha model outperforms models with 200K+ vocabularies like Gemma 4, Sarvam 105B, and OpenAI's 200K models.
+General foundation models split Tamil into fallback byte sequences, producing 3 to 12 tokens per word.
+Partha 120K averages 1.62 tokens per word on this test set, emitting 50.2% fewer tokens than OpenAI `o200k_base`.
+The 30K model averages 1.88 tokens per word, outperforming larger vocabularies from Gemma 4, Sarvam, and OpenAI.
 
-## The published models
+## Published models
 
-The [Hub repository](https://huggingface.co/barryallen16/partha-tamil-tokenizer) publishes two models.
-Both are retrained as v4 with a dummy prefix on every training line.
-The prefix closes the line-initial word split and is worth 0.5-1.3% depending on merge budget.
+The [Hub repository](https://huggingface.co/barryallen16/partha-tamil-tokenizer) hosts two models.
+Both are trained with a dummy prefix on each line, closing line-initial word splits for a 0.5-1.3% compression gain.
 
 | file | merges | vocab | wiki B/tok | IndicCorp B/tok |
 |---|---:|---:|---:|---:|
 | `tamil_tokenizer_wiki.json` | 30,000 | 31,793 | 13.115 | 13.053 |
 | `tamil_tokenizer_wiki_120k_mixed.json` | 120,000 | 122,723 | 14.720 | 16.251 |
 
-The 120K mixed model is the default.
-It ties the best specialist on each domain.
-Going from 30K to 120K merges costs about 11% in throughput.
+The 120K mixed model is the default and matches the best domain-specific tokenizer on each split.
+Scaling from 30K to 120K merges costs 11% in encoding throughput.
 Use the 30K model when artifact size matters more than sequence length.
 
 ## Documentation

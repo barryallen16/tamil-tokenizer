@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Publish a trained tokenizer to the Hugging Face Hub, with a model card built
 from measurement rather than from claims.
 
@@ -235,9 +234,9 @@ Benchmarked across all 12 playground tokenizers:
 | 11 | Meta Muse Glimmer (202K) | Open LLMs | 5,223,528 | 4.02 | 5.97 | -83.5% |
 | 12 | OpenAI GPT-4 & 3.5 (legacy cl100k) | OpenAI | 10,308,009 | 2.04 | 11.78 | -262.1% |
 
-General foundation models suffer from a heavy Tamil token tax because their vocabularies treat Tamil as fallback bytes.
-Partha 120K tokenizes real-world Tamil at 1.62 tokens per word, cutting API cost and context consumption by 50.2% compared to OpenAI GPT-5.x / o1.
-Even the compact 30K Partha model outperforms models with 200K+ vocabularies like Gemma 4, Sarvam 105B, and OpenAI's 200K models.
+General foundation models split Tamil into fallback byte sequences, producing 3 to 12 tokens per word.
+Partha 120K averages 1.62 tokens per word on this test set, emitting 50.2% fewer tokens than OpenAI `o200k_base`.
+The 30K model averages 1.88 tokens per word, outperforming larger vocabularies from Gemma 4, Sarvam, and OpenAI.
 
 Llama 3 and `cl100k_base` land 0.007% apart on tokens emitted. Both are
 byte-fallback BPE with no Tamil vocabulary, so both collapse to about one token

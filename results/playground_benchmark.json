@@ -1,0 +1,172 @@
+{
+  "timestamp": "2026-11-13 16:02:52",
+  "corpus_stats": {
+    "total_lines": 280,
+    "total_words": 2097,
+    "total_bytes": 45563,
+    "domains": {
+      "transcripts": 250,
+      "wikipedia": 10,
+      "literature": 10,
+      "tanglish_tech": 10
+    }
+  },
+  "results": [
+    {
+      "model_id": "tamil-120k",
+      "name": "Partha Tamil (120K)",
+      "category": "Partha",
+      "token_count": 3319,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 13.81,
+      "tokens_per_word": 1.58,
+      "throughput_kbs": 3646.3,
+      "time_seconds": 0.012,
+      "savings_vs_gpt4o_pct": 49.7
+    },
+    {
+      "model_id": "indicbert",
+      "name": "AI4Bharat IndicBERTv2 (256K)",
+      "category": "Indic LLMs",
+      "token_count": 4387,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 10.45,
+      "tokens_per_word": 2.09,
+      "throughput_kbs": 4285.9,
+      "time_seconds": 0.01,
+      "savings_vs_gpt4o_pct": 33.5
+    },
+    {
+      "model_id": "tamil-30k",
+      "name": "Partha Tamil (30K)",
+      "category": "Partha",
+      "token_count": 4482,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 10.23,
+      "tokens_per_word": 2.14,
+      "throughput_kbs": 4330.9,
+      "time_seconds": 0.01,
+      "savings_vs_gpt4o_pct": 32.0
+    },
+    {
+      "model_id": "gemma-4",
+      "name": "Google Gemma 4 (262K)",
+      "category": "Open LLMs",
+      "token_count": 5160,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 8.88,
+      "tokens_per_word": 2.46,
+      "throughput_kbs": 4481.5,
+      "time_seconds": 0.01,
+      "savings_vs_gpt4o_pct": 21.7
+    },
+    {
+      "model_id": "sarvam-1",
+      "name": "Sarvam-1 (68K)",
+      "category": "Indic LLMs",
+      "token_count": 5284,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 8.68,
+      "tokens_per_word": 2.52,
+      "throughput_kbs": 4576.5,
+      "time_seconds": 0.01,
+      "savings_vs_gpt4o_pct": 19.9
+    },
+    {
+      "model_id": "sarvam-105b",
+      "name": "Sarvam AI 105B (262K)",
+      "category": "Indic LLMs",
+      "token_count": 5440,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 8.43,
+      "tokens_per_word": 2.59,
+      "throughput_kbs": 4460.2,
+      "time_seconds": 0.01,
+      "savings_vs_gpt4o_pct": 17.5
+    },
+    {
+      "model_id": "openai-o200k",
+      "name": "OpenAI GPT-4o (o200k_base)",
+      "category": "OpenAI",
+      "token_count": 6593,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 6.95,
+      "tokens_per_word": 3.14,
+      "throughput_kbs": 10284.8,
+      "time_seconds": 0.004,
+      "savings_vs_gpt4o_pct": 0.0
+    },
+    {
+      "model_id": "mbert",
+      "name": "mBERT (119K)",
+      "category": "Baselines",
+      "token_count": 7949,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 5.77,
+      "tokens_per_word": 3.79,
+      "throughput_kbs": 3199.7,
+      "time_seconds": 0.014,
+      "savings_vs_gpt4o_pct": -20.6
+    },
+    {
+      "model_id": "qwen-3.8",
+      "name": "Alibaba Qwen 3.8 (248K)",
+      "category": "Open LLMs",
+      "token_count": 8324,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 5.51,
+      "tokens_per_word": 3.97,
+      "throughput_kbs": 2492.6,
+      "time_seconds": 0.018,
+      "savings_vs_gpt4o_pct": -26.3
+    },
+    {
+      "model_id": "llama-4",
+      "name": "Meta Llama 4 (201K)",
+      "category": "Open LLMs",
+      "token_count": 11807,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 3.88,
+      "tokens_per_word": 5.63,
+      "throughput_kbs": 2764.3,
+      "time_seconds": 0.016,
+      "savings_vs_gpt4o_pct": -79.1
+    },
+    {
+      "model_id": "muse-glimmer",
+      "name": "Meta Muse Glimmer (202K)",
+      "category": "Open LLMs",
+      "token_count": 11807,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 3.88,
+      "tokens_per_word": 5.63,
+      "throughput_kbs": 2845.9,
+      "time_seconds": 0.016,
+      "savings_vs_gpt4o_pct": -79.1
+    },
+    {
+      "model_id": "openai-cl100k",
+      "name": "OpenAI GPT-4 / 3.5 (cl100k_base)",
+      "category": "OpenAI",
+      "token_count": 22288,
+      "byte_count": 45842,
+      "word_count": 2097,
+      "bytes_per_token": 2.06,
+      "tokens_per_word": 10.63,
+      "throughput_kbs": 5800.3,
+      "time_seconds": 0.008,
+      "savings_vs_gpt4o_pct": -238.1
+    }
+  ]
+}

@@ -27,19 +27,19 @@ AVAILABLE_MODELS = [
     },
     {
         "id": "openai-o200k",
-        "name": "OpenAI GPT-4o (o200k_base)",
+        "name": "OpenAI GPT-5.x & o1/3 (o200k_base)",
         "category": "OpenAI",
         "encoding_name": "o200k_base",
         "type": "tiktoken",
-        "description": "200K vocab BPE used in GPT-4o, GPT-4o-mini, and o1."
+        "description": "200K vocab BPE used in GPT-5.x, o1, o3, and GPT-4o."
     },
     {
         "id": "openai-cl100k",
-        "name": "OpenAI GPT-4 / 3.5 (cl100k_base)",
+        "name": "OpenAI GPT-4 & 3.5 (legacy cl100k)",
         "category": "OpenAI",
         "encoding_name": "cl100k_base",
         "type": "tiktoken",
-        "description": "100K vocab BPE used in GPT-4 and GPT-3.5-turbo."
+        "description": "100K vocab BPE used in legacy GPT-4 and GPT-3.5-turbo."
     },
     {
         "id": "gemma-4",

@@ -6,6 +6,7 @@
   // Sample test presets
   const PRESETS = {
     greeting: 'வணக்கம்! நீங்கள் எப்படி இருக்கிறீர்கள்? இன்று வானிலை நன்றாக உள்ளது.',
+    foundation: 'தமிழ்நாடு இந்தியாவின் தென் பகுதியில் அமைந்துள்ள மாநிலமாகும். சென்னை இதன் தலைநகரமாகவும், மிகப்பெரிய நகரமாகவும் விளங்குகிறது. தமிழ் மொழி உலகின் மிகத் தொன்மையான செம்மொழிகளில் ஒன்றாகும். நவீன கணினி அறிவியல் மற்றும் இயற்கை மொழி செயலாக்க ஆய்வுகளில் தமிழ் எழுத்துருக்கள் மற்றும் சொல் கட்டமைப்பு முக்கிய இடத்தைப் பெறுகின்றன.',
     kural: 'அகர முதல எழுத்தெல்லாம் ஆதி பகவன் முதற்றே உலகு.',
     tech: 'செயற்கை நுண்ணறிவு மற்றும் இயந்திர கற்றல் தொழில்நுட்பங்கள் தமிழ் மொழியில் வேகமாக வளர்ந்து வருகின்றன.',
     conjuncts: 'க்ஷ ஸ்ரீ க்ட ண்ட ஹலோ ஜன்னல் ஷங்கர் பக்ஷி',
@@ -94,8 +95,8 @@
       availableModels = [
         { id: 'tamil-120k', name: 'Partha Tamil (120K)', category: 'Partha' },
         { id: 'tamil-30k', name: 'Partha Tamil (30K)', category: 'Partha' },
-        { id: 'openai-o200k', name: 'OpenAI GPT-4o (o200k_base)', category: 'OpenAI' },
-        { id: 'openai-cl100k', name: 'OpenAI GPT-4 / 3.5 (cl100k_base)', category: 'OpenAI' },
+        { id: 'openai-o200k', name: 'OpenAI GPT-5.x & o1/3 (o200k_base)', category: 'OpenAI' },
+        { id: 'openai-cl100k', name: 'OpenAI GPT-4 & 3.5 (legacy cl100k)', category: 'OpenAI' },
         { id: 'gemma-4', name: 'Google Gemma 4 (262K)', category: 'Open LLMs' },
         { id: 'qwen-3.8', name: 'Alibaba Qwen 3.8 (248K)', category: 'Open LLMs' },
         { id: 'llama-4', name: 'Meta Llama 4 (201K)', category: 'Open LLMs' },
